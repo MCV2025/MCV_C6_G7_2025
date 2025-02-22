@@ -143,9 +143,9 @@ if __name__ == "__main__":
     video_path = str(Path("AICity_data") / "train" / "S03" / "c010" / "vdo.avi")
 
     # Single Gaussian Modelling 
-    gaussian_modelling(video_path, 
-                       percent=0.25, 
-                       alpha=2.5, 
-                       use_median=False,
-                       output_name="single_gaussian_output", 
+    gaussian_modelling(video_path, # Video path
+                       percent=0.25, # Percentage of frames used for background estimation
+                       alpha=2.5, # Threshold for foreground segmentation
+                       use_median=False, # Use median for background estimation
+                       output_name="single_gaussian_output",  # Output video name
                        show_video=False) # Set to True to display the video
