@@ -147,5 +147,5 @@ if __name__ == "__main__":
                        percent=0.25, # Percentage of frames used for background estimation
                        alpha=2.5, # Threshold for foreground segmentation
                        use_median=False, # Use median for background estimation
-                       output_name="single_gaussian_output",  # Output video name
+                       output_name="task_1_1_mean_alpha2.5",  # Output video name
                        show_video=False) # Set to True to display the video
