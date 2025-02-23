@@ -2,6 +2,7 @@ import json
 import cv2
 import numpy as np
 import xml.etree.ElementTree as ET
+from typing import Optional, Tuple, Dict, List  # Python 3.9-compatible typing
 
 # ---------------------------------------------------------------------------------
 #                               TASK 1 FUNCTIONS
@@ -28,7 +29,7 @@ def get_total_frames(video_path: str) -> int:
     return total_frames
 
 
-def get_frames(video_path: str, start: int = 0, end: int | None = None) -> np.ndarray:
+def get_frames(video_path: str, start: int = 0, end: Optional[int] = None) -> np.ndarray:
     """Extracts video frames as grayscale images and returns them as a NumPy array.
 
     This function reads frames from the video file between 'start' and 'end' (exclusive),
@@ -76,7 +77,7 @@ def get_frames(video_path: str, start: int = 0, end: int | None = None) -> np.nd
 def estimate_background(video_path: str, 
                         percent: float = 0.25, 
                         use_median: bool = False
-                        ) -> tuple[np.ndarray | None, np.ndarray | None, int]:
+                        ) -> Tuple[Optional[np.ndarray],Optional[np.ndarray], int]:
     """Estimate the background of a video using the first 'percent' of frames.
 
     This function computes a background model by analyzing a portion of the video frames. 
@@ -137,7 +138,7 @@ def segment_foreground(
     std_bg: np.ndarray,
     num_bg_frames: int,
     alpha: float = 2.5,
-    output_path: str | None = None,
+    output_path: Optional[str] = None,
     show_video: bool = False
 ) -> None:
     """Segments the foreground in a video based on background estimation.
@@ -206,7 +207,7 @@ def segment_foreground(
 #                               TASK 2 FUNCTIONS
 #----------------------------------------------------------------------------------
 
-def convert_xml_to_coco(xml_file: str, categories: dict[str, int]) -> dict:
+def convert_xml_to_coco(xml_file: str, categories: Dict[str, int]) -> Dict:
     """Converts an XML annotation file (CVAT format) to COCO format.
 
     This function parses an XML file containing object annotations, filters out 
@@ -349,11 +350,9 @@ def extract_bounding_boxes(video_path: str,
     return output_json
 
 
-def convert_detections_to_coco(
-    detections: dict[int, list[list[float]]], 
-    categories: dict[str, int], 
-    output_json: str
-) -> dict:
+def convert_detections_to_coco(detections: Dict[int, List[List[float]]], 
+                               categories: Dict[str, int], 
+                               output_json: str) -> Dict:
     """Converts object detections into COCO format.
 
     This function processes a dictionary of detections, where each frame ID maps 
@@ -408,7 +407,7 @@ def convert_detections_to_coco(
     coco_format = {
         "images": images,
         "annotations": annotations,
-        "categories": [{"id": 1, "name": "car"}],
+        "categories": [{"id": 1, "name": "car-bike"}],
     }
 
     # Save COCO format to JSON file

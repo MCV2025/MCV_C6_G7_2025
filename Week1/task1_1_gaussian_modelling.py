@@ -1,5 +1,5 @@
 from pathlib import Path
-from utils import estimate_background, segment_foreground
+from Week1.utils import estimate_background, segment_foreground
 
 
 def gaussian_modelling(
