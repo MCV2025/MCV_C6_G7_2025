@@ -1,8 +1,14 @@
 import json
+from pathlib import Path
+
 import cv2
 import numpy as np
 import xml.etree.ElementTree as ET
 from typing import Optional, Tuple, Dict, List  # Python 3.9-compatible typing
+
+from matplotlib import pyplot as plt
+from tqdm import tqdm
+
 
 # ---------------------------------------------------------------------------------
 #                               TASK 1 FUNCTIONS
@@ -514,3 +520,117 @@ def convert_detections_to_coco(
 
     print(f"Fixed detections saved to {output_json}")
     return coco_format
+
+
+def visualize_estimated_background(mean_bg: np.ndarray, std_bg: np.ndarray, save_path: str | None = None) -> None:
+    """
+    Visualizes the estimated background mean and standard deviation side by side.
+
+    Args:
+        mean_bg (np.ndarray): 2D array of the background mean (grayscale).
+        std_bg (np.ndarray): 2D array of the background standard deviation.
+        save_path (str | None): Path to save the output plot. If None, displays the plot.
+
+    Returns:
+        None
+    """
+    plt.figure(figsize=(10, 5))
+
+    # Mean background subplot
+    plt.subplot(1, 2, 1)
+    plt.title("Estimated Background Mean")
+    plt.imshow(mean_bg, cmap='gray')
+    plt.colorbar()
+    plt.axis('off')
+
+    # Standard deviation subplot
+    plt.subplot(1, 2, 2)
+    plt.title("Estimated Background Std Dev")
+    plt.imshow(std_bg, cmap='hot')
+    plt.colorbar()
+    plt.axis('off')
+
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path)
+    else:
+        plt.show()
+
+
+def adaptive_segment_foreground(
+    video_path: str,
+    mean_bg: np.ndarray,
+    std_bg: np.ndarray,
+    num_bg_frames: int,
+    alpha: float = 2.5,
+    rho: float = 0.01,
+    output_path: str | None = None,
+    show_video: bool = False
+) -> None:
+    """
+    Segments the foreground using adaptive background modeling.
+
+    Args:
+        video_path (str): Path to the input video file.
+        mean_bg (np.ndarray): The estimated background image (grayscale).
+        std_bg (np.ndarray): The standard deviation of the background model.
+        num_bg_frames (int): The number of frames used to compute the background.
+        alpha (float, optional): Threshold multiplier for background subtraction (default is 2.5).
+        rho (float): Learning rate for adaptive modeling (0 < rho <= 1).
+        output_path (str | None, optional): Path to save the output segmented video.
+            If None, the video is not saved (default is None).
+        show_video (bool, optional): If True, displays the segmented foreground in real time (default is False).
+
+    Returns:
+        None: The function does not return a value but can save an output video.
+
+    Example:
+        >>> segment_foreground("video.mp4", mean_bg, std_bg, num_bg_frames, alpha=3.0, rho=1e-2, output_path="output.avi", show_video=True)
+
+    Notes:
+        - The function processes frames starting from `num_bg_frames` to the end of the video.
+        - Foreground detection is based on the absolute difference exceeding `alpha * std_bg + 2`.
+        - Press 'ESC' to stop the video display early.
+    """
+    total_frames = get_total_frames(video_path)  # Total frames in the video
+    frames = get_frames(video_path, start=num_bg_frames, end=total_frames)  # Read frames after background frames
+
+    # Create the output video writer if saving
+    if output_path:
+        fourcc = cv2.VideoWriter_fourcc(*'XVID')  # Codec for .avi
+        fps = 30  # Frame rate
+        out_video = cv2.VideoWriter(output_path, fourcc, fps, (frames[0].shape[1], frames[0].shape[0]))
+
+    pbar = tqdm(enumerate(frames), total=total_frames)
+    for i, frame in pbar:
+        # Create foreground mask by comparing frame with background
+        foreground_mask = np.abs(frame - mean_bg) >= (alpha * (std_bg + 2))
+        fg_binary = (foreground_mask * 255).astype(np.uint8)
+
+        # Update background model (for background pixels only)
+        background_mask = ~foreground_mask
+        mean_bg[background_mask] = (rho * frame[background_mask] + (1 - rho) * mean_bg[background_mask])
+        std_bg[background_mask] = (rho * (frame[background_mask] - mean_bg[background_mask])**2 +
+                                   (1 - rho) * std_bg[background_mask])
+
+        # Uncomment to save estimated backgrounds
+        # estimated_background_folder = Path("Output_Videos") / "AdaptativeModelling" / "estimated_background"
+        # estimated_background_folder.mkdir(parents=True, exist_ok=True)
+        # visualize_estimated_background(
+        #     mean_bg, std_bg, save_path=(estimated_background_folder / f"estimated_background_iter_{i}.png").as_posix()
+        # )
+
+        # Show the foreground binary mask if show_video is True
+        if show_video:
+            cv2.imshow("Foreground Mask", fg_binary)
+
+        # Write the processed frame to the output video
+        if output_path:
+            out_video.write(cv2.cvtColor(fg_binary, cv2.COLOR_GRAY2BGR))
+
+        # Break on pressing 'ESC'
+        if cv2.waitKey(30) & 0xFF == 27:
+            break
+    
+    cv2.destroyAllWindows()

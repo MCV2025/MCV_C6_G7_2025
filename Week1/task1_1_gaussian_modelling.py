@@ -68,13 +68,11 @@ def gaussian_modelling(
 
 
 if __name__ == "__main__":
-
-    
-    video_path = str(Path("AICity_data") / "train" / "S03" / "c010" / "vdo.avi")
-    print(video_path)
+    video_path = Path("AICity_data") / "train" / "S03" / "c010" / "vdo.avi"
+    assert video_path.exists(), f"{video_path} doesn't exists!"
 
     # Single Gaussian Modelling 
-    gaussian_modelling(video_path, 
+    gaussian_modelling(video_path.as_posix(), 
                        percent=0.25, 
                        alpha=3.5,  # It was at 2.5, I have augmented it
                        use_median=False, 
