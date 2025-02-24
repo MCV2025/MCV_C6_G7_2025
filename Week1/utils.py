@@ -132,75 +132,151 @@ def estimate_background(video_path: str,
 
     return mean_bg, std_bg, num_bg_frames
 
+# def segment_foreground(
+#     video_path: str,
+#     mean_bg: np.ndarray,
+#     std_bg: np.ndarray,
+#     num_bg_frames: int,
+#     alpha: float = 2.5,
+#     output_path: Optional[str] = None,
+#     show_video: bool = False
+# ) -> None:
+#     """Segments the foreground in a video based on background estimation.
+
+#     This function processes a video by comparing each frame to a precomputed background model.
+#     It identifies foreground pixels where the difference from the background exceeds 
+#     `alpha * std_bg`. The resulting binary mask highlights moving objects.
+
+#     The function optionally saves the output as a video and can display the segmentation in real time.
+
+#     Args:
+#         video_path (str): Path to the input video file.
+#         mean_bg (np.ndarray): The estimated background image (grayscale).
+#         std_bg (np.ndarray): The standard deviation of the background model.
+#         num_bg_frames (int): The number of frames used to compute the background.
+#         alpha (float, optional): Threshold multiplier for background subtraction (default is 2.5).
+#         output_path (str | None, optional): Path to save the output segmented video.
+#             If None, the video is not saved (default is None).
+#         show_video (bool, optional): If True, displays the segmented foreground in real time (default is False).
+
+#     Returns:
+#         None: The function does not return a value but can save an output video.
+
+#     Example:
+#         >>> segment_foreground("video.mp4", mean_bg, std_bg, num_bg_frames, alpha=3.0, output_path="output.avi", show_video=True)
+
+#     Notes:
+#         - The function processes frames starting from `num_bg_frames` to the end of the video.
+#         - Foreground detection is based on the absolute difference exceeding `alpha * std_bg + 2`.
+#         - Press 'ESC' to stop the video display early.
+#     """
+#     total_frames = get_total_frames(video_path)  # Total frames in the video
+#     frames = get_frames(video_path, start=num_bg_frames, end=total_frames)  # Read frames after background frames
+
+#     # Create the output video writer if saving
+#     if output_path:
+#         fourcc = cv2.VideoWriter_fourcc(*'XVID')  # Codec for .avi
+#         fps = 30  # Frame rate
+#         out_video = cv2.VideoWriter(output_path, fourcc, fps, (frames[0].shape[1], frames[0].shape[0]))
+
+#     for frame in frames:
+#         # Create foreground mask by comparing frame with background
+#         foreground_mask = np.abs(frame - mean_bg) >= (alpha * (std_bg + 2))
+#         fg_binary = (foreground_mask * 255).astype(np.uint8)
+
+#         # Show the foreground binary mask if show_video is True
+#         if show_video:
+#             cv2.imshow("Foreground Mask", fg_binary)
+
+#         # Write the processed frame to the output video
+#         if output_path:
+#             out_video.write(cv2.cvtColor(fg_binary, cv2.COLOR_GRAY2BGR))
+
+#         # Break on pressing 'ESC'
+#         if cv2.waitKey(30) & 0xFF == 27:
+#             break
+    
+#     cv2.destroyAllWindows()
+
+#     # Release video writer if it was created
+#     if output_path:
+#         out_video.release()
+
+
 def segment_foreground(
     video_path: str,
     mean_bg: np.ndarray,
     std_bg: np.ndarray,
     num_bg_frames: int,
     alpha: float = 2.5,
-    output_path: Optional[str] = None,
+    output_path: str = None,
+    bbox_output_json: str = "detected_bounding_boxes.json",
     show_video: bool = False
-) -> None:
-    """Segments the foreground in a video based on background estimation.
+):
+    """Segments foreground and extracts bounding boxes while processing frames."""
 
-    This function processes a video by comparing each frame to a precomputed background model.
-    It identifies foreground pixels where the difference from the background exceeds 
-    `alpha * std_bg`. The resulting binary mask highlights moving objects.
+    total_frames = get_total_frames(video_path)
+    frames = get_frames(video_path, start=num_bg_frames, end=total_frames)
 
-    The function optionally saves the output as a video and can display the segmentation in real time.
-
-    Args:
-        video_path (str): Path to the input video file.
-        mean_bg (np.ndarray): The estimated background image (grayscale).
-        std_bg (np.ndarray): The standard deviation of the background model.
-        num_bg_frames (int): The number of frames used to compute the background.
-        alpha (float, optional): Threshold multiplier for background subtraction (default is 2.5).
-        output_path (str | None, optional): Path to save the output segmented video.
-            If None, the video is not saved (default is None).
-        show_video (bool, optional): If True, displays the segmented foreground in real time (default is False).
-
-    Returns:
-        None: The function does not return a value but can save an output video.
-
-    Example:
-        >>> segment_foreground("video.mp4", mean_bg, std_bg, num_bg_frames, alpha=3.0, output_path="output.avi", show_video=True)
-
-    Notes:
-        - The function processes frames starting from `num_bg_frames` to the end of the video.
-        - Foreground detection is based on the absolute difference exceeding `alpha * std_bg + 2`.
-        - Press 'ESC' to stop the video display early.
-    """
-    total_frames = get_total_frames(video_path)  # Total frames in the video
-    frames = get_frames(video_path, start=num_bg_frames, end=total_frames)  # Read frames after background frames
-
-    # Create the output video writer if saving
     if output_path:
-        fourcc = cv2.VideoWriter_fourcc(*'XVID')  # Codec for .avi
-        fps = 30  # Frame rate
+        fourcc = cv2.VideoWriter_fourcc(*"XVID")
+        fps = 14
         out_video = cv2.VideoWriter(output_path, fourcc, fps, (frames[0].shape[1], frames[0].shape[0]))
 
+    detected_bboxes = {}  # Store bounding boxes per frame
+    frame_number = num_bg_frames  # Start from the correct frame index
+
+    # -------------------------------------------------------------------------------------
+    #    This section is for task 1.2. The idea was to detect the bboxes while modeling to 
+    #    have better frame-detected object alignment
+    #---------------------------------------------------------------------------------------
     for frame in frames:
-        # Create foreground mask by comparing frame with background
+        # Foreground detection using background subtraction
         foreground_mask = np.abs(frame - mean_bg) >= (alpha * (std_bg + 2))
         fg_binary = (foreground_mask * 255).astype(np.uint8)
 
-        # Show the foreground binary mask if show_video is True
-        if show_video:
-            cv2.imshow("Foreground Mask", fg_binary)
+        # Create a black background
+        black_background = np.zeros_like(fg_binary)
 
-        # Write the processed frame to the output video
+        # Find contours
+        contours, _ = cv2.findContours(fg_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        frame_bboxes = []
+        for contour in contours:
+            x, y, w, h = cv2.boundingRect(contour)
+            area = w * h
+
+            if w > 50 and h > 50 and area > 1100:  # Ignore small noise
+                frame_bboxes.append([x, y, x + w, y + h])  # (x_min, y_min, x_max, y_max)
+
+                cv2.rectangle(black_background, (x, y), (x + w, y + h), (255, 255, 255), 2)
+
+        if frame_bboxes:
+            detected_bboxes[frame_number] = frame_bboxes  # Save bounding boxes
+
+        # -------------------------------------------------------------------------------------
+        #    It finishes here
+        #---------------------------------------------------------------------------------------
+
+        if show_video:
+            cv2.imshow("Foreground Mask", black_background)  # Show white bbox on black background
+
         if output_path:
             out_video.write(cv2.cvtColor(fg_binary, cv2.COLOR_GRAY2BGR))
 
-        # Break on pressing 'ESC'
         if cv2.waitKey(30) & 0xFF == 27:
             break
-    
+
+        frame_number += 1  # Increment frame index
+
     cv2.destroyAllWindows()
 
-    # Release video writer if it was created
     if output_path:
         out_video.release()
+
+    # Also from task 1.2, Save bounding boxes to JSON
+    with open(bbox_output_json, "w") as f:
+        json.dump(detected_bboxes, f, indent=4)
 
 
 # ---------------------------------------------------------------------------------
@@ -241,21 +317,25 @@ def convert_xml_to_coco(xml_file: str, categories: Dict[str, int]) -> Dict:
     images = []
     annotations = []
     annotation_id = 1
+    frame_offset = 536  # 0 to 535 used for background estimation and not in modelled video
 
     for track in root.findall("track"):
         label = track.get("label")
-        # if label != "car":  # Ignore non-car objects
-        #     continue
 
         for box in track.findall("box"):
             frame = int(box.get("frame"))
+
+            # We ignore them as they are not in modelled video
+            if frame < frame_offset:
+                continue
+
             xtl, ytl, xbr, ybr = map(float, [box.get("xtl"), box.get("ytl"), box.get("xbr"), box.get("ybr")])
             if label == "car":
                 parked = box.find("attribute[@name='parked']").text
                 if parked == "true":  # Ignore parked cars
                     continue
             
-            # Convert all labels into car-bike
+            # Convert all labels into car-bike as we work with only one class
             label = "car-bike"
             
             category_id = categories[label]
@@ -285,109 +365,132 @@ def convert_xml_to_coco(xml_file: str, categories: Dict[str, int]) -> Dict:
     return coco_format
 
 
-def extract_bounding_boxes(video_path: str, 
-                           output_json: str="detected_bounding_boxes.json", 
-                           threshold: int=127,
-                           min_area: int=10) -> None:
-    """
-    Extracts bounding boxessss from a binary-segmented video.
+# def extract_bounding_boxes(video_path: str, 
+#                            output_json: str, 
+#                            threshold: int=127,
+#                            min_area: int=10) -> None:
+#     """
+#     Extracts bounding boxessss from a binary-segmented video.
 
-    This function processes an input video, applying grayscale conversion 
-    and thresholding to detect objectsss. It then extracts bounding boxes 
-    around the detected regions and stores them in a JSON file.
+#     This function processes an input video, applying grayscale conversion 
+#     and thresholding to detect objectsss. It then extracts bounding boxes 
+#     around the detected regions and stores them in a JSON file.
 
-    Args:
-        video_filename (str): The name of the input video file, located in the "Output_Videos" directory.
-        output_json (str, optional): The filename for saving the detected bounding boxes as a JSON file. 
-                                     Defaults to "detected_bounding_boxes.json".
-        threshold (int, optional): The binarization threshold for segmenting the video frames. 
-                                   Defaults to 127.
+#     Args:
+#         video_filename (str): The name of the input video file, located in the "Output_Videos" directory.
+#         output_json (str, optional): The filename for saving the detected bounding boxes as a JSON file. 
+#                                      Defaults to "detected_bounding_boxes.json".
+#         threshold (int, optional): The binarization threshold for segmenting the video frames. 
+#                                    Defaults to 127.
 
-    Returns:
-        dict: A dictionary mapping frame numbers to a list of bounding box tuples. 
-              Each tuple is in the format (x_min, y_min, x_max, y_max).
+#     Returns:
+#         dict: A dictionary mapping frame numbers to a list of bounding box tuples. 
+#               Each tuple is in the format (x_min, y_min, x_max, y_max).
 
-    Example:
-        >>> boxes = extract_bounding_boxes("example_video.mp4")
-        Processing video: Output_Videos/example_video.mp4
-        Extracted bounding boxes saved as detected_bounding_boxes.json
-    """
+#     Example:
+#         >>> boxes = extract_bounding_boxes("example_video.mp4")
+#         Processing video: Output_Videos/example_video.mp4
+#         Extracted bounding boxes saved as detected_bounding_boxes.json
+#     """
 
-    cap = cv2.VideoCapture(video_path)
-    detected_boxes = {}
-    frame_number = 0
+#     cap = cv2.VideoCapture(video_path)
+#     detected_boxes = {}
+#     frame_number = 0
 
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
+#     while cap.isOpened():
+#         ret, frame = cap.read()
+#         if not ret:
+#             break
 
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        _, binary = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
-        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+#         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+#         _, binary = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
+#         contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-        frame_bboxes = []
-        for contour in contours:
-            x, y, w, h = cv2.boundingRect(contour)
-            area = w * h
+#         frame_bboxes = []
+#         for contour in contours:
+#             x, y, w, h = cv2.boundingRect(contour)
+#             area = w * h
             
-            # Ignore very small objects (noise)
-            if w > 1 and h > 1 and area > min_area:  
-                frame_bboxes.append((x, y, x + w, y + h))  # Store (x_min, y_min, x_max, y_max)
+#             # Ignore very small objects (noise)
+#             if w > 1 and h > 1 and area > min_area:  
+#                 frame_bboxes.append((x, y, x + w, y + h))  # Store (x_min, y_min, x_max, y_max)
 
-        # Save bounding boxes for this frame
-        if frame_bboxes:
-            detected_boxes[frame_number] = frame_bboxes
+#         # Save bounding boxes for this frame
+#         if frame_bboxes:
+#             detected_boxes[frame_number] = frame_bboxes
 
-        frame_number += 1
+#         frame_number += 1
 
-    cap.release()
+#     cap.release()
 
-    # Save detected bounding boxes as a JSON file
-    with open(output_json, "w") as f:
-        json.dump(detected_boxes, f, indent=4)
+#     # Save detected bounding boxes as a JSON file
+#     with open(output_json, "w") as f:
+#         json.dump(detected_boxes, f, indent=4)
 
-    return output_json
+#     return output_json
 
 
-def convert_detections_to_coco(detections: Dict[int, List[List[float]]], 
-                               categories: Dict[str, int], 
-                               output_json: str) -> Dict:
-    """Converts object detections into COCO format.
+def convert_detections_to_coco(
+    detections: str, 
+    ground_truth: str, 
+    output_json: str, 
+    categories: Dict[str, int],
+    frame_offset: int=535
+) -> Dict:
+    """Converts object detections into COCO format with ground truth validation.
 
-    This function processes a dictionary of detections, where each frame ID maps 
-    to a list of bounding boxes. It converts the detections into the COCO annotation 
-    format and optionally saves them as a JSON file.
+    This function processes a JSON file of detections and filters them based on 
+    valid frame IDs from a ground truth dataset. It then converts the detections 
+    into COCO format and saves the output as a JSON file.
 
     Args:
-        detections (dict[int, list[list[float]]]): Dictionary mapping frame IDs to a list of bounding boxes.
-            Each bounding box is represented as [x_min, y_min, x_max, y_max].
-        categories (dict[str, int]): Mapping of category names to COCO category IDs.
+        detections (str): Path to a JSON file containing detected bounding boxes.
+            The JSON should be structured as {frame_id: [[x_min, y_min, x_max, y_max], ...]}.
+        ground_truth (str): Path to a ground truth JSON file in COCO format.
+            The function ensures that detections only include frames listed in 
+            `ground_truth["images"]`.
         output_json (str): Path to save the output JSON file in COCO format.
+        categories (Dict[str, int]): Mapping of category names to COCO category IDs.
 
     Returns:
-        dict: A dictionary in COCO format containing:
-            - "images" (list[dict]): Metadata for each annotated frame.
-            - "annotations" (list[dict]): Bounding box annotations in COCO format.
-            - "categories" (list[dict]): List of COCO category definitions.
+        Dict: A dictionary in COCO format containing:
+            - "images" (list[Dict]): Metadata for each annotated frame.
+            - "annotations" (list[Dict]): Bounding box annotations in COCO format.
+            - "categories" (list[Dict]): List of COCO category definitions.
 
     Example:
-        >>> detections = {1: [[100, 200, 300, 400], [50, 60, 200, 250]]}
         >>> categories = {"car-bike": 1}
-        >>> coco_data = convert_detections_to_coco(detections, categories, "output.json")
+        >>> coco_data = convert_detections_to_coco("detections.json", "ground_truth.json", "output.json", categories)
         >>> print(coco_data.keys())
         dict_keys(['images', 'annotations', 'categories'])
 
     Notes:
-        - The function assumes the "car-bike" category is present in `categories`.
-        - The bounding boxes are converted to COCO format: (x_min, y_min, width, height).
+        - Frames not present in `ground_truth["images"]` are ignored.
+        - Bounding boxes are converted to COCO format: (x_min, y_min, width, height).
         - The output JSON file is written to `output_json`.
     """
+    # Load detected bounding boxes
+    with open(detections, "r") as f:
+        detections = json.load(f)
+
+    # Load ground truth image IDs
+    with open(ground_truth, "r") as f:
+        gt_data = json.load(f)
+
+    gt_image_ids = {img["id"] for img in gt_data["images"]}  # Set of valid frame IDs
+
     images = []
     annotations = []
     annotation_id = 1
 
     for frame, boxes in detections.items():
+        frame = int(frame)  # Convert frame to integer
+        # frame = frame + frame_offset
+
+        if frame not in gt_image_ids:
+            print(f"Skipping frame {frame} (not in ground truth).")
+            continue  # Skip frames that are not in ground truth
+
         image_info = {"id": frame, "file_name": f"{frame}.jpg", "height": 1080, "width": 1920}
         images.append(image_info)
 
@@ -395,7 +498,7 @@ def convert_detections_to_coco(detections: Dict[int, List[List[float]]],
             bbox = [box[0], box[1], box[2] - box[0], box[3] - box[1]]  # Convert to COCO format
             annotation = {
                 "id": annotation_id,
-                "image_id": frame,
+                "image_id": frame,  # Use corrected frame number
                 "category_id": categories["car-bike"],
                 "bbox": bbox,
                 "area": bbox[2] * bbox[3],
@@ -404,14 +507,10 @@ def convert_detections_to_coco(detections: Dict[int, List[List[float]]],
             annotations.append(annotation)
             annotation_id += 1
 
-    coco_format = {
-        "images": images,
-        "annotations": annotations,
-        "categories": [{"id": 1, "name": "car-bike"}],
-    }
+    coco_format = {"images": images, "annotations": annotations, "categories": [{"id": 1, "name": "car-bike"}]}
 
-    # Save COCO format to JSON file
     with open(output_json, "w") as f:
         json.dump(coco_format, f, indent=4)
 
+    print(f"Fixed detections saved to {output_json}")
     return coco_format

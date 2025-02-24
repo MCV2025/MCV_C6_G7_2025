@@ -1,13 +1,13 @@
 from pathlib import Path
-from Week1.utils import estimate_background, segment_foreground
-
+from utils import estimate_background, segment_foreground
+from typing import Optional
 
 def gaussian_modelling(
     video_path: str,
     percent: float = 0.25,
     alpha: float = 2.5,
     use_median: bool = False,
-    output_name: str | None = None,
+    output_name: Optional[str] = None,  # Updated for Python 3.9
     show_video: bool = False
 ) -> None:
     """Processes a video using Gaussian modeling for background subtraction.
@@ -55,8 +55,16 @@ def gaussian_modelling(
         print("Background estimation failed. Check the video path and format.")
     else:
         # Segment foreground and save to video
-        segment_foreground(video_path, mean_bg, std_bg, num_bg_frames, alpha, output_video_path, show_video)
-
+        segment_foreground(
+            video_path,
+            mean_bg,
+            std_bg,
+            num_bg_frames=535,  # Start at frame 536 to sincronize
+            alpha=alpha,
+            output_path=output_video_path,
+            bbox_output_json="detected_bounding_boxes.json",
+            show_video=show_video
+        )
 
 
 if __name__ == "__main__":
@@ -68,7 +76,7 @@ if __name__ == "__main__":
     # Single Gaussian Modelling 
     gaussian_modelling(video_path, 
                        percent=0.25, 
-                       alpha=2.5, 
+                       alpha=3.5,  # It was at 2.5, I have augmented it
                        use_median=False, 
-                       output_name="task_1_1_mean_alpha2.5",  
+                       output_name="task_1_1_mean_alpha2.5-10",  
                        show_video=False) 
