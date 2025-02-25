@@ -557,6 +557,8 @@ def visualize_estimated_background(mean_bg: np.ndarray, std_bg: np.ndarray, save
     else:
         plt.show()
 
+    plt.close()
+
 
 def adaptive_segment_foreground(
     video_path: str,
@@ -611,8 +613,8 @@ def adaptive_segment_foreground(
         # Update background model (for background pixels only)
         background_mask = ~foreground_mask
         mean_bg[background_mask] = (rho * frame[background_mask] + (1 - rho) * mean_bg[background_mask])
-        std_bg[background_mask] = (rho * (frame[background_mask] - mean_bg[background_mask])**2 +
-                                   (1 - rho) * std_bg[background_mask])
+        std_bg[background_mask] = np.sqrt((rho * (frame[background_mask] - mean_bg[background_mask])**2 +
+                                   (1 - rho) * std_bg[background_mask]**2))
 
         # Uncomment to save estimated backgrounds
         # estimated_background_folder = Path("Output_Videos") / "AdaptativeModelling" / "estimated_background"

@@ -92,7 +92,7 @@ def plot_prec_recall_curve(prec, rec, title="Precision-Recall curve", save_name=
 
 
 # --- Ground Truth Parsing --- (from your code)
-xml_file = "Week1/ai_challenge_s03_c010-full_annotation.xml"
+xml_file = "ai_challenge_s03_c010-full_annotation.xml"
 tree = ET.parse(xml_file)
 root = tree.getroot()
 
@@ -152,13 +152,13 @@ def get_bbox_from_single_image(image, kernel_open=5, kernel_close=30):
 
 
 # --- Main Evaluation Loop ---
-video_file = "Week1/Output_Videos/task1_1_mean_alpha2.5.avi"
+video_file = "Output_Videos/task_1_1_mean_alpha10.avi"
 cap = cv2.VideoCapture(video_file)
 frame_idx = 535
 pred_bboxes = []
 gt_bboxes = []
 
-roi = cv2.imread("Week1\AICity_data/train\S03\c010/roi.jpg", cv2.IMREAD_GRAYSCALE)
+roi = cv2.imread("AICity_data/train\S03\c010/roi.jpg", cv2.IMREAD_GRAYSCALE)
 min_area_threshold = 1000
 
 while cap.isOpened():
