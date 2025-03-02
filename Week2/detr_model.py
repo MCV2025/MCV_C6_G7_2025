@@ -1,11 +1,14 @@
 
 from typing import Union
-import torch
 import yaml
-import numpy as np
 
+import numpy as np
 from transformers import PreTrainedModel
+
+import torch
 from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+
 from utils import data_augmentation, get_optimizer
 
 # Load YAML file
@@ -77,8 +80,48 @@ def run_model(
         collate_fn=collate_fn)
     
     # -------------------------
-    # 3) Model & Oprtimizer
+    # 4) Model & Oprtimizer
     # -------------------------
     model.config.num_labels = num_labels
     model.to(device)
     optimizer = get_optimizer(params, model)
+
+    # -------------------------
+    # 5) Early stopping and patience parameters
+    # -------------------------
+    patience = 200
+    min_delta = 0.001
+    best_val_loss = np.Inf
+    current_patience = 0
+
+    scheduler = ReduceLROnPlateau(optimizer, mode='min', patience=5, factor=0.1, verbose=True)
+
+    for epoch in range(num_epochs):
+        train_loss, train_accuracy = trainer.train(model, train_loader, criterion, optimizer, params, device)
+        val_loss, val_accuracy = validator.validation(model, val_loader, criterion, params, device)
+        # Adjust learning rate based on validation loss
+        scheduler.step(val_loss)
+        
+        # Early stopping
+        if val_loss < best_val_loss - min_delta:
+            best_val_loss = val_loss
+            current_patience = 0
+
+            # Save the best model
+            print("Best model. Saving weights")
+            torch.save(model.state_dict(), model_name)
+        else:
+            current_patience += 1
+            if current_patience > patience:
+                print("Early stopping.")
+                break
+
+        print(f'Epoch [{epoch+1}/{num_epochs}], Train Loss/Accuracy: {train_loss:.4f}/{train_accuracy:.4f} Val Loss/Accuracy: {val_loss:.4f}/{val_accuracy:.4f}')
+
+        #Add info to wandb
+        wandb.log({
+            'Train Loss': train_loss,
+            'Validation Loss': val_loss,
+            'Train Accuracy': train_accuracy,
+            'Validation Accuracy': val_accuracy,
+        })

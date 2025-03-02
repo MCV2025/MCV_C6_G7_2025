@@ -1,7 +1,7 @@
 import random
 import wandb
 import optuna
-from transformers import DetrForObjectDetection, DetrFeatureExtractor
+from transformers import DetrForObjectDetection
 
 from detr_model import run_model
 
