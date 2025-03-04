@@ -9,8 +9,9 @@ from pathlib import Path
 from transformers import DetrForObjectDetection
 
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Load the pretrained DETR model
-detr = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50")
+detr = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50").to(device)
 detr.eval()
 
 # Define transformation for input images
@@ -50,7 +51,7 @@ def compute_iou(box1, box2):
 
 # Function to process a frame through DETR
 def detect_objects(frame):
-    img = transform(frame).unsqueeze(0)  # Add batch dimension
+    img = transform(frame).unsqueeze(0).to(device) # Add batch dimension
     with torch.no_grad():
         outputs = detr(img)
     return outputs
@@ -60,7 +61,7 @@ def draw_boxes(frame, outputs, ground_truth, threshold=0.7):
     h, w, _ = frame.shape
     probas = outputs['logits'].softmax(-1)[0, :, :-1]  # Remove background class
     keep = probas.max(-1).values > threshold
-    boxes = outputs['pred_boxes'][0, keep]  # Filter boxes
+    boxes = outputs['pred_boxes'][0, keep] # Filter boxes
     labels = probas.argmax(-1)[keep]
 
     # Draw detected boxes in RED for all detected cars
@@ -75,6 +76,7 @@ def draw_boxes(frame, outputs, ground_truth, threshold=0.7):
         if label_name == "car":
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)  # Red box for all detected cars
             cv2.putText(frame, label_name, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+
     # Draw ground truth boxes in GREEN
     for gt in ground_truth:
         x1, y1, x2, y2 = gt['bbox']
@@ -84,8 +86,6 @@ def draw_boxes(frame, outputs, ground_truth, threshold=0.7):
     return frame
 
 # Function to parse CVAT-style XML annotations
-import xml.etree.ElementTree as ET
-
 def parse_cvat_xml(xml_file):
     tree = ET.parse(xml_file)
     root = tree.getroot()

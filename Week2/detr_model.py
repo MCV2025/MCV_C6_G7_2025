@@ -2,14 +2,19 @@
 from typing import Union
 import yaml
 
+import wandb
+import cv2
 import numpy as np
-from transformers import PreTrainedModel
 
 import torch
+import torch.nn as nn
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+import torchvision.transforms as T
+from transformers import DetrForObjectDetection, PreTrainedModel
 
-from utils import data_augmentation, get_optimizer
+from Week2.utils.utils import data_augmentation, get_optimizer
+from utils.train_val import Trainer, Validator
 
 # Load YAML file
 with open('config.yml', 'r') as file:
@@ -32,63 +37,86 @@ torch.cuda.manual_seed_all(seed)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Selected device: --> {device}")
 
+def freeze_layers(params,
+                  model,
+                  num_labels: int,
+                  hidden_layer_dim: int = 256) -> DetrForObjectDetection:
+    
+    model.config.num_labels = num_labels
+
+    # Freeze model's different components
+    if params['freeze_backbone'] == 'True':
+        for param in model.model.backbone.parameters():
+            param.requires_grad() = False
+
+    if params['freeze_transformer'] == 'True':
+        for param in model.model.encoder.parameters():
+            param.requires_grad = False
+        
+        for param in model.model.decoder.parameters():
+            param.requires_grad = False
+
+    if params['freeze_bbox_predictor'] == 'True':
+        for param in model.bbox_predictor.parameters():
+            param.requires_grad = False
+            
+            
+    # Replace the classification head
+    # Detr use hungarian matching and implementing sodtmax at the end can cause errors.
+    d_model = model.model.decoder.layers[0].self_attn.embed_dim
+    model.class_label_classifier = nn.Sequential(
+        nn.Linear(d_model, hidden_layer_dim),
+        nn.ReLU(),
+        nn.Linear(hidden_layer_dim, num_labels)
+    )
+
+    return model
 
 def run_model(
         params: dict[str, Union[int, float, str]], 
         model: PreTrainedModel,
-        dataset, 
-        trial_number: int, 
+        video_path, 
+        annotations,
+        trial_number: int,
         num_labels: int=1) -> None:
     
-    model_name = f""
+    model_name = f"img_size={params['img_size']}, lr={params['lr']}, optimizer={params['optimizer']}, epochs={params['epochs']}, detr_dim={params['detr_dim']}"
 
-
-    #--------------------------
-    # 1) Call datasets
-    #--------------------------
-    train_dataset = ""
-    validation_ratio = 0.2
-    val_dataset = ""
-    test_dataset = ""
-    
-    # -------------------------
-    # 2) Hyperparameter Search
-    # -------------------------
-    learning_rate=params['lr']
     num_epochs = params['epochs']
-    batch_size = params['batch_size']
 
-    # -------------------------
-    # 3) DataLoaders
-    # -------------------------
-    train_loader = DataLoader(
-        train_dataset, 
-        batch_size=batch_size, 
-        shuffle=True, 
-        collate_fn=collate_fn)
+    cap = cv2.VideoCapture(video_path)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    train_end = int(0.20 * total_frames) 
+    val_end = train_end + int(0.05 * total_frames)
+
+    model = freeze_layers(
+        params,
+        model, 
+        num_labels, 
+        hidden_layer_dim=params['detr_dim'])
     
-    val_loader = DataLoader(
-        val_dataset, 
-        batch_size=batch_size, 
-        shuffle=False, 
-        collate_fn=collate_fn)
-    
-    test_loader = DataLoader(
-        test_dataset, 
-        batch_size=batch_size, 
-        shuffle=False, 
-        collate_fn=collate_fn)
-    
-    # -------------------------
-    # 4) Model & Oprtimizer
-    # -------------------------
-    model.config.num_labels = num_labels
     model.to(device)
     optimizer = get_optimizer(params, model)
 
-    # -------------------------
-    # 5) Early stopping and patience parameters
-    # -------------------------
+
+    transform = T.Compose([
+        T.ToPILImage(),
+        T.Resize((params['img_size'], params['img_size'])),
+        T.ToTensor(),
+        T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ])
+
+    trainer = Trainer(
+        video_path,
+        train_end=train_end,
+        val_end=val_end,
+        annotation_file=annotations,
+        transform=transform,
+        car_category_id=1
+    )
+
+    # Early stopping
     patience = 200
     min_delta = 0.001
     best_val_loss = np.Inf
@@ -97,8 +125,8 @@ def run_model(
     scheduler = ReduceLROnPlateau(optimizer, mode='min', patience=5, factor=0.1, verbose=True)
 
     for epoch in range(num_epochs):
-        train_loss, train_accuracy = trainer.train(model, train_loader, criterion, optimizer, params, device)
-        val_loss, val_accuracy = validator.validation(model, val_loader, criterion, params, device)
+        train_loss, train_accuracy = trainer.train(model, optimizer, device)
+        val_loss, val_accuracy = trainer.validation(model, params, device)
         # Adjust learning rate based on validation loss
         scheduler.step(val_loss)
         
@@ -125,3 +153,15 @@ def run_model(
             'Train Accuracy': train_accuracy,
             'Validation Accuracy': val_accuracy,
         })
+
+    print(f'Testing the best model with name: {model_name} ...')
+    model.load_state_dict(torch.load(model_name))  # Load best saved model
+    test_loss, test_accuracy = trainer.test(model, params, device)
+
+    print(f"Final Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.4f}")
+
+    # Log test performance
+    wandb.log({
+        'Test Loss': test_loss,
+        'Test Accuracy': test_accuracy
+    })

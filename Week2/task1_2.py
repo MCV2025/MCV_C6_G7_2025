@@ -1,0 +1,61 @@
+import random
+import wandb
+import optuna
+from transformers import DetrForObjectDetection
+
+from detr_model import run_model
+from task1_1 import parse_cvat_xml
+
+
+wandb.login(key="50315889c64d6cfeba1b57dc714112418a50e134")
+
+
+def objective_model_cv(trial):
+    params = {
+        # 'batch_size': trial.suggest_categorical('batch_size', [16]),
+        'img_size': trial.suggest_categorical('img_size', [8, 16, 32, 64, 128, 224, 256]),  # 8,16,32,64,128,224,256
+        'lr': trial.suggest_categorical('lr', [0.0001, 0.001, 0.01, 0.1, 0.2, 0.3]),  # 0.0001, 0.001, 0.01, 0.1, 0.2, 0.3
+        'optimizer': trial.suggest_categorical('optimizer', ['adadelta', 'adam', 'sgd', 'RMSprop']),  # adadelta, adam, sgd, RMSprop
+        # 'unfroze': trial.suggest_categorical('unfroze', [20]),
+
+        # 'rot': trial.suggest_categorical('rot', [20]),
+        # 'sr': trial.suggest_categorical('sr', [0]),
+        # 'zr': trial.suggest_categorical('zr', [0.2]),
+        # 'hf': trial.suggest_categorical('hf', [0.2]),
+
+        # 'margin': trial.suggest_float('margin', 1.0, 1.0),
+
+        # 'momentum': trial.suggest_float('momentum', 0.95, 0.95),
+        # 'dropout': trial.suggest_categorical('dropout', ['0']),
+        'epochs': trial.suggest_categorical('epochs', [50, 100, 150, 200, 250, 300]),
+        # 'output': trial.suggest_categorical('output', [2]),
+
+        'detr_dim': trial.suggest_categorical('detr_dim', [128, 256, 512]),
+        'f_backbone': trial.suggest_categorical('f_backbone', ['False']),
+        'f_transformer': trial.suggest_categorical('f_transformer', ['False']),
+        'f_bbox_predictor': trial.suggest_categorical('f_bbox_predictor', ['False'])
+    }
+
+    config = dict(trial.params)
+    config['trial.number'] = trial.number
+
+    execution_name = f'Detr_ft_xavi{str(trial.number)}'
+
+    wandb.init(
+        project='Detr_W1_ft',
+        entity='mcv_c6g7',
+        name=execution_name,
+        config=config,
+        reinit=True,
+    )
+
+    annotation_file = "ai_challenge_s03_c010-full_annotation.xml"
+    model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50")
+    annotations = parse_cvat_xml(annotation_file)
+
+    ratio = run_model(params, model, annotations, trial.number)
+    return ratio
+
+
+study = optuna.create_study(direction="maximize", study_name='c6-Week1')
+study.optimize(objective_model_cv, n_trials=1)

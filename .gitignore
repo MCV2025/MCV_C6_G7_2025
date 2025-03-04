@@ -172,3 +172,5 @@ cython_debug/
 .pypirc
 
 Week1/
+AICity_data/
+output.avi
