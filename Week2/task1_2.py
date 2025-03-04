@@ -1,4 +1,5 @@
 import random
+from pathlib import Path
 import wandb
 import optuna
 from transformers import DetrForObjectDetection
@@ -25,15 +26,16 @@ def objective_model_cv(trial):
 
         # 'margin': trial.suggest_float('margin', 1.0, 1.0),
 
-        # 'momentum': trial.suggest_float('momentum', 0.95, 0.95),
+        'momentum': trial.suggest_float('momentum', 0.95, 0.95),
         # 'dropout': trial.suggest_categorical('dropout', ['0']),
         'epochs': trial.suggest_categorical('epochs', [50, 100, 150, 200, 250, 300]),
         # 'output': trial.suggest_categorical('output', [2]),
 
         'detr_dim': trial.suggest_categorical('detr_dim', [128, 256, 512]),
-        'f_backbone': trial.suggest_categorical('f_backbone', ['False']),
-        'f_transformer': trial.suggest_categorical('f_transformer', ['False']),
-        'f_bbox_predictor': trial.suggest_categorical('f_bbox_predictor', ['False'])
+        'freeze_backbone': trial.suggest_categorical('freeze_backbone', ['False']),
+        'freeze_transformer': trial.suggest_categorical('freeze_transformer', ['False']),
+        'freeze_bbox_predictor': trial.suggest_categorical('freeze_bbox_predictor', ['False']),
+        'extra_layers': trial.suggest_categorical('extra_layers', ['True', 'False'])
     }
 
     config = dict(trial.params)
@@ -43,7 +45,7 @@ def objective_model_cv(trial):
 
     wandb.init(
         project='Detr_W1_ft',
-        entity='mcv_c6g7',
+        entity='mcv-c6g7',
         name=execution_name,
         config=config,
         reinit=True,
@@ -52,8 +54,14 @@ def objective_model_cv(trial):
     annotation_file = "ai_challenge_s03_c010-full_annotation.xml"
     model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50")
     annotations = parse_cvat_xml(annotation_file)
+    video_path = Path("AICity_data") / "train" / "S03" / "c010" / "vdo.avi"
 
-    ratio = run_model(params, model, annotations, trial.number)
+    ratio = run_model(params, 
+                      model, 
+                      video_path=video_path, 
+                      annotations=annotations, 
+                      trial_number=trial.number, 
+                      num_labels=1)
     return ratio
 
 

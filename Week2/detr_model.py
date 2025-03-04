@@ -13,29 +13,15 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 import torchvision.transforms as T
 from transformers import DetrForObjectDetection, PreTrainedModel
 
-from Week2.utils.utils import data_augmentation, get_optimizer
-from utils.train_val import Trainer, Validator
+from utils.utils import get_optimizer
+from utils.train_val import Trainer
 
-# Load YAML file
-with open('config.yml', 'r') as file:
-    data = yaml.safe_load(file)
-
-# Accessing variables from the YAML data
-dataset_dir = data['DATASET_DIR']
-dataset_train = data['DATASET_TRAIN']
-dataset_test = data['DATASET_TEST']
 
 # Define a random seed for torch, numpy and cuda. This will ensure reproducibility
 # and help obtain same results (wights inits, data splits, etc.). 
 # This way we delete the posibility of a run obtaining better results by random chance
 # rather than by hyperparameter tweaking.
-seed = 49
-torch.manual_seed(seed)
-np.random.seed(seed)
-torch.cuda.manual_seed_all(seed)
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Selected device: --> {device}")
 
 def freeze_layers(params,
                   model,
@@ -43,32 +29,37 @@ def freeze_layers(params,
                   hidden_layer_dim: int = 256) -> DetrForObjectDetection:
     
     model.config.num_labels = num_labels
+    model.class_labels_classifier = torch.nn.Linear(
+        model.config.d_model, 
+        model.config.num_labels + 1
+    )
 
     # Freeze model's different components
     if params['freeze_backbone'] == 'True':
         for param in model.model.backbone.parameters():
-            param.requires_grad() = False
+            param.requires_grad() == False
 
     if params['freeze_transformer'] == 'True':
         for param in model.model.encoder.parameters():
-            param.requires_grad = False
+            param.requires_grad == False
         
         for param in model.model.decoder.parameters():
-            param.requires_grad = False
+            param.requires_grad == False
 
     if params['freeze_bbox_predictor'] == 'True':
         for param in model.bbox_predictor.parameters():
-            param.requires_grad = False
+            param.requires_grad == False
             
             
     # Replace the classification head
     # Detr use hungarian matching and implementing sodtmax at the end can cause errors.
-    d_model = model.model.decoder.layers[0].self_attn.embed_dim
-    model.class_label_classifier = nn.Sequential(
-        nn.Linear(d_model, hidden_layer_dim),
-        nn.ReLU(),
-        nn.Linear(hidden_layer_dim, num_labels)
-    )
+    if params['extra_layers'] == 'True':
+        d_model = model.model.decoder.layers[0].self_attn.embed_dim
+        model.class_labels_classifier = nn.Sequential(
+            nn.Linear(d_model, hidden_layer_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_layer_dim, num_labels + 1)
+        )
 
     return model
 
@@ -80,7 +71,15 @@ def run_model(
         trial_number: int,
         num_labels: int=1) -> None:
     
-    model_name = f"img_size={params['img_size']}, lr={params['lr']}, optimizer={params['optimizer']}, epochs={params['epochs']}, detr_dim={params['detr_dim']}"
+    seed = 49
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Selected device: --> {device}")
+    
+    model_name = f"best model with parameters -> is={params['img_size']}, lr={params['lr']}, op={params['optimizer']}, ep={params['epochs']}, ded={params['detr_dim']}.pth"
 
     num_epochs = params['epochs']
 
@@ -119,14 +118,14 @@ def run_model(
     # Early stopping
     patience = 200
     min_delta = 0.001
-    best_val_loss = np.Inf
+    best_val_loss = np.inf
     current_patience = 0
 
     scheduler = ReduceLROnPlateau(optimizer, mode='min', patience=5, factor=0.1, verbose=True)
 
     for epoch in range(num_epochs):
         train_loss, train_accuracy = trainer.train(model, optimizer, device)
-        val_loss, val_accuracy = trainer.validation(model, params, device)
+        val_loss, val_accuracy = trainer.validation(model, device)
         # Adjust learning rate based on validation loss
         scheduler.step(val_loss)
         

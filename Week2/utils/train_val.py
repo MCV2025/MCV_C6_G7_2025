@@ -76,7 +76,7 @@ class Trainer:
         :param car_category_id: label ID used for 'car'
         """
         self.video_path = video_path
-        self.annotation = annotation_file
+        self.annotations = annotation_file
         self.transform = transform
         self.car_category_id = car_category_id
         self.train_end = train_end
@@ -86,7 +86,6 @@ class Trainer:
         self,
         model: DetrForObjectDetection,
         optimizer: torch.optim.Optimizer,
-        params: dict[str, Any],
         device: torch.device
     ) -> tuple[float, float]:
         """
@@ -156,8 +155,6 @@ class Trainer:
     def validation(
         self,
         model: DetrForObjectDetection,
-        _unused_loader,           # We keep this in the signature just to match your run_model usage
-        params: dict[str, Any],
         device: torch.device
     ) -> tuple[float, float]:
         """
@@ -173,9 +170,9 @@ class Trainer:
             print("Error opening video:", self.video_path)
             return 0.0, 0.0
 
-        frame_idx = self.test_end
+        frame_idx = self.train_end
         total_loss = 0.0
-        frames_used = self.test_end
+        frames_used = self.train_end
 
         # We do not track gradients during validation
         with torch.no_grad():
@@ -216,7 +213,6 @@ class Trainer:
     def test(
         self,
         model: torch.nn.Module,
-        params: dict[str, Any],
         device: torch.device
     ) -> tuple[float, float]:
         """
