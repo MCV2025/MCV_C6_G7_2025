@@ -1,5 +1,6 @@
 import torch
 import torchvision.transforms as T
+import torchvision.ops as ops
 import cv2
 import numpy as np
 import xml.etree.ElementTree as ET
@@ -181,16 +182,27 @@ def save_detections_mots(output_txt, tracked_objects, frame_idx):
             f.write(f"{frame_idx + 1}, {obj_id}, {x1}, {y1}, {width}, {height}, {conf:.2f}, -1, -1, -1\n")
 
 
+def apply_nms(detections, iou_threshold=0.4):
+    if len(detections) == 0:
+        return []
+    
+    boxes = torch.tensor([d['bbox'] for d in detections], dtype=torch.float32)
+    scores = torch.tensor([d['score'] for d in detections], dtype=torch.float32)
+    
+    keep_idx = ops.nms(boxes, scores, iou_threshold)
+    return [detections[i] for i in keep_idx]
+
+
 def filter_and_transform_detections(frame, outputs, threshold=0.7):
     h, w, _ = frame.shape
-    probas = outputs['logits'].softmax(-1)[0, :, :-1]  # Remove background class
-    keep = probas.max(-1).values > threshold  # Keep only the boxes with confidence > 70%
-    boxes = outputs['bbox'][0, keep].cpu().numpy()  # Filter boxes based on the threshold
-    labels = probas.argmax(-1)[keep].cpu().numpy()  # Get the class labels
-
-    # Create the list of transformed annotations
+    probas = outputs['logits'].softmax(-1)[0, :, :-1]
+    keep = probas.max(-1).values > threshold
+    boxes = outputs['bbox'][0, keep].cpu().numpy()
+    labels = probas.argmax(-1)[keep].cpu().numpy()
+    scores = probas.max(-1).values[keep].cpu().numpy()
+    
     transformed_annotations = []
-    for box, label in zip(boxes, labels):
+    for box, label, score in zip(boxes, labels, scores):
         label_name = CLASSES[label]
         if label_name == "car":
             x_center, y_center, width, height = box
@@ -198,14 +210,14 @@ def filter_and_transform_detections(frame, outputs, threshold=0.7):
             y1 = int((y_center - height / 2) * h)
             x2 = int((x_center + width / 2) * w)
             y2 = int((y_center + height / 2) * h)
-          
+            
             transformed_annotations.append({
                 'label': label_name,
                 'bbox': (x1, y1, x2, y2),
-                'parked': False  # Assuming parked information is not required for tracking here
+                'score': float(score)
             })
-
-    return transformed_annotations
+    
+    return apply_nms(transformed_annotations)
 
 
 tracker = ObjectTracker(iou_threshold=0.5)
