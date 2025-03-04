@@ -1,5 +1,7 @@
 import random
 from pathlib import Path
+
+import numpy as np
 import wandb
 import optuna
 from transformers import DetrForObjectDetection
@@ -56,12 +58,26 @@ def objective_model_cv(trial):
     annotations = parse_cvat_xml(annotation_file)
     video_path = Path("AICity_data") / "train" / "S03" / "c010" / "vdo.avi"
 
-    ratio = run_model(params, 
-                      model, 
-                      video_path=video_path, 
-                      annotations=annotations, 
-                      trial_number=trial.number, 
-                      num_labels=1)
+    total_frames = 2141
+    frame_indices = np.arange(total_frames)
+
+    train_pctg = 0.25
+    valid_pctg = 0.05
+
+    train_frames_idx = frame_indices[:int(train_pctg * total_frames)].tolist()
+    valid_frames_idx = frame_indices[int(train_pctg * total_frames):int((train_pctg + valid_pctg) * total_frames)].tolist()
+    test_frames_idx = frame_indices[int((train_pctg + valid_pctg) * total_frames):].tolist()
+
+    ratio = run_model(params,
+              model,
+              video_path=video_path,
+              annotations=annotations,
+              trial_number=0,
+              train_frames_idx=train_frames_idx,
+              valid_frames_idx=valid_frames_idx,
+              test_frames_idx=test_frames_idx,
+              num_labels=1)
+
     return ratio
 
 

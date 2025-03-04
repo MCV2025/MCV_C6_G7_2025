@@ -69,7 +69,11 @@ def run_model(
         video_path, 
         annotations,
         trial_number: int,
-        num_labels: int=1) -> None:
+        train_frames_idx: list,
+        valid_frames_idx: list,
+        test_frames_idx: list,
+        num_labels: int = 1
+        ) -> None:
     
     seed = 49
     torch.manual_seed(seed)
@@ -82,12 +86,6 @@ def run_model(
     model_name = f"best model with parameters -> lr={params['lr']}, op={params['optimizer']}, ded={params['detr_dim']}.pth"
     print(model_name)
     num_epochs = params['epochs']
-
-    cap = cv2.VideoCapture(video_path)
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-    train_end = int(0.20 * total_frames) 
-    val_end = train_end + int(0.05 * total_frames)
 
     model = freeze_layers(
         params,
@@ -108,8 +106,9 @@ def run_model(
 
     trainer = Trainer(
         video_path,
-        train_end=train_end,
-        val_end=val_end,
+        train_frames_idx=train_frames_idx,
+        valid_frames_idx=valid_frames_idx,
+        test_frames_idx=test_frames_idx,
         annotation_file=annotations,
         transform=transform,
         car_category_id=1

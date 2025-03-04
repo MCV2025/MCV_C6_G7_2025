@@ -56,8 +56,9 @@ class Trainer:
     def __init__(
         self,
         video_path: str,
-        train_end: int,
-        val_end: int,
+        train_frames_idx: list,
+        valid_frames_idx: list,
+        test_frames_idx: list,
         annotation_file: str,
         transform,  
         car_category_id: int = 1
@@ -72,8 +73,9 @@ class Trainer:
         self.annotations = annotation_file
         self.transform = transform
         self.car_category_id = car_category_id
-        self.train_end = train_end
-        self.val_end = val_end
+        self.train_frames_idx = train_frames_idx
+        self.valid_frames_idx = valid_frames_idx
+        self.test_frames_idx = test_frames_idx
 
     def train(
         self,
@@ -102,15 +104,13 @@ class Trainer:
 
         frame_idx = 0
         total_loss = 0.0
-        frames_used = 0
-
 
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
             
-            if frame_idx < self.train_end:
+            if frame_idx in self.train_frames_idx:
                 # Prepare frame for Detr
                 input_tensor, labels_list = prepare_frame_for_detr(
                     frame=frame,
@@ -136,11 +136,11 @@ class Trainer:
                 optimizer.step()
 
                 total_loss += loss.item()
-            frames_used += 1
             frame_idx += 1
 
         cap.release()
 
+        frames_used = len(self.train_frames_idx)
         avg_loss = total_loss / frames_used if frames_used > 0 else 0.0
         return avg_loss, 0.0
 
@@ -163,9 +163,8 @@ class Trainer:
             print("Error opening video:", self.video_path)
             return 0.0, 0.0
 
-        frame_idx = self.train_end
+        frame_idx = 0
         total_loss = 0.0
-        frames_used = self.train_end
 
         # We do not track gradients during validation
         with torch.no_grad():
@@ -174,7 +173,7 @@ class Trainer:
                 if not ret:
                     break  # No more frames or error
                 
-                if self.train_end < frame_idx < self.val_end:
+                if frame_idx in self.valid_frames_idx:
                     input_tensor, labels_list = prepare_frame_for_detr(
                         frame=frame,
                         frame_idx=frame_idx,
@@ -194,11 +193,11 @@ class Trainer:
                     loss = outputs.loss
 
                     total_loss += loss.item()
-                frames_used += 1
                 frame_idx += 1
 
         cap.release()
 
+        frames_used = len(self.valid_frames_idx)
         avg_loss = total_loss / frames_used if frames_used > 0 else 0.0
         # For detection tasks, "accuracy" is typically not relevant, so we return 0.0
         return avg_loss, 0.0
@@ -222,7 +221,6 @@ class Trainer:
 
         frame_idx = 0
         total_loss = 0.0
-        frames_used = 0
 
         with torch.no_grad():
             while True:
@@ -230,7 +228,7 @@ class Trainer:
                 if not ret:
                     break  # No more frames
                 
-                if frame_idx > self.val_end:
+                if frame_idx in self.test_frames_idx:
                     # Prepare frame
                     input_tensor, labels_list = prepare_frame_for_detr(
                         frame=frame,
@@ -250,10 +248,10 @@ class Trainer:
                     loss = outputs.loss
 
                     total_loss += loss.item()
-                frames_used += 1
                 frame_idx += 1
 
         cap.release()
 
+        frames_used = len(self.test_frames_idx)
         avg_test_loss = total_loss / frames_used if frames_used > 0 else 0.0
         return avg_test_loss, 0.0  # Accuracy is 0.0 since DETR is detection-based
