@@ -16,7 +16,7 @@ def objective_model_cv(trial):
         # 'batch_size': trial.suggest_categorical('batch_size', [16]),
         'img_size': trial.suggest_categorical('img_size', [800]),
         'lr': trial.suggest_categorical('lr', [0.0001, 0.001, 0.01, 0.1, 0.2, 0.3]),  # 0.0001, 0.001, 0.01, 0.1, 0.2, 0.3
-        'optimizer': trial.suggest_categorical('optimizer', ['adadelta', 'adam', 'sgd', 'RMSprop']),  # adadelta, adam, sgd, RMSprop
+        'optimizer': trial.suggest_categorical('optimizer', ['adadelta', 'adam', 'sgd', 'rmsprop']),  # adadelta, adam, sgd, RMSprop
         # 'unfroze': trial.suggest_categorical('unfroze', [20]),
 
         # 'rot': trial.suggest_categorical('rot', [20]),
@@ -35,13 +35,13 @@ def objective_model_cv(trial):
         'freeze_backbone': trial.suggest_categorical('freeze_backbone', ['False']),
         'freeze_transformer': trial.suggest_categorical('freeze_transformer', ['False']),
         'freeze_bbox_predictor': trial.suggest_categorical('freeze_bbox_predictor', ['False']),
-        'extra_layers': trial.suggest_categorical('extra_layers', ['True', 'False'])
+        'extra_layers': trial.suggest_categorical('extra_layers', ['True'])
     }
 
     config = dict(trial.params)
     config['trial.number'] = trial.number
 
-    execution_name = f'Detr_ft_xavi{str(trial.number)}'
+    execution_name = f'Detr_ft_xavi_new{str(trial.number)}'
 
     wandb.init(
         project='Detr_W1_ft',
@@ -66,4 +66,4 @@ def objective_model_cv(trial):
 
 
 study = optuna.create_study(direction="maximize", study_name='c6-Week1')
-study.optimize(objective_model_cv, n_trials=1)
+study.optimize(objective_model_cv, n_trials=100)

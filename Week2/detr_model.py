@@ -53,7 +53,7 @@ def freeze_layers(params,
             
     # Replace the classification head
     # Detr use hungarian matching and implementing sodtmax at the end can cause errors.
-    if params['extra_layers'] == 'True':
+    if params['extra_layers'] != 'True':
         d_model = model.model.decoder.layers[0].self_attn.embed_dim
         model.class_labels_classifier = nn.Sequential(
             nn.Linear(d_model, hidden_layer_dim),
@@ -80,7 +80,7 @@ def run_model(
     print(f"Selected device: --> {device}")
     
     model_name = f"best model with parameters -> lr={params['lr']}, op={params['optimizer']}, ded={params['detr_dim']}.pth"
-
+    print(model_name)
     num_epochs = params['epochs']
 
     cap = cv2.VideoCapture(video_path)
