@@ -41,13 +41,35 @@ def compute_iou(box1, box2):
     y1 = max(box1[1], box2[1])
     x2 = min(box1[2], box2[2])
     y2 = min(box1[3], box2[3])
-    
     inter_area = max(0, x2 - x1) * max(0, y2 - y1)
     box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
     box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
     union_area = box1_area + box2_area - inter_area
-    
     return inter_area / union_area if union_area != 0 else 0
+
+def compute_miou(detections, ground_truths):
+    ious = [max([compute_iou(det, gt) for gt in ground_truths] or [0]) for det in detections]
+    return np.mean(ious) if ious else 0
+
+def compute_ap(recall, precision):
+    recall = np.concatenate(([0.0], recall, [1.0]))
+    precision = np.concatenate(([1.0], precision, [0.0]))
+    precision = np.maximum.accumulate(precision[::-1])[::-1]
+    return np.trapz(precision, recall)
+
+def compute_map50(detected_boxes, gt_boxes):
+    tp, fp, fn = 0, 0, len(gt_boxes)
+    ious = [max([compute_iou(det, gt) for gt in gt_boxes] or [0]) for det in detected_boxes]
+    for iou in ious:
+        if iou >= 0.5:
+            tp += 1
+            fn -= 1
+        else:
+            fp += 1
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+    return compute_ap(np.array([recall]), np.array([precision]))
+
 
 # Function to process a frame through DETR
 def detect_objects(frame):
@@ -61,8 +83,9 @@ def draw_boxes(frame, outputs, ground_truth, threshold=0.7):
     h, w, _ = frame.shape
     probas = outputs['logits'].softmax(-1)[0, :, :-1]  # Remove background class
     keep = probas.max(-1).values > threshold
-    boxes = outputs['pred_boxes'][0, keep] # Filter boxes
+    boxes = outputs['pred_boxes'][0, keep]  # Filter boxes
     labels = probas.argmax(-1)[keep]
+    detected_bboxes = []  # List to store detected bounding boxes
 
     # Draw detected boxes in RED for all detected cars
     for box, label in zip(boxes, labels):
@@ -74,8 +97,9 @@ def draw_boxes(frame, outputs, ground_truth, threshold=0.7):
         
         label_name = CLASSES[label]
         if label_name == "car":
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)  # Red box for all detected cars
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)  # Red box for detected cars
             cv2.putText(frame, label_name, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+            detected_bboxes.append((x1, y1, x2, y2))  # Store detected bounding box
 
     # Draw ground truth boxes in GREEN
     for gt in ground_truth:
@@ -83,7 +107,7 @@ def draw_boxes(frame, outputs, ground_truth, threshold=0.7):
         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)  # Green for ground truth
         cv2.putText(frame, gt['label'], (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
     
-    return frame
+    return frame, detected_bboxes
 
 # Function to parse CVAT-style XML annotations
 def parse_cvat_xml(xml_file):
@@ -127,28 +151,53 @@ def process_video(video_path, output_path, annotation_file):
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-    
+
     annotations = parse_cvat_xml(annotation_file)
     frame_idx = 0
-    
+
+    all_detections = []
+    all_ground_truths = []
+    miou_list = []
+
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
-        
+
         outputs = detect_objects(frame)
         ground_truth = annotations.get(frame_idx, [])
-        frame= draw_boxes(frame, outputs, ground_truth)
+        frame, detected_boxes= draw_boxes(frame, outputs, ground_truth)
         out.write(frame)
-        
+
+        print(detected_boxes)
+        gt_boxes = [gt['bbox'] for gt in ground_truth]
+        print(gt_boxes)
+
+        # Store detections & ground truths for overall evaluation
+        all_detections.extend(detected_boxes)
+        all_ground_truths.extend(gt_boxes)
+
+        # Compute mIoU per frame
+        frame_miou = compute_miou(detected_boxes, gt_boxes)
+        miou_list.append(frame_miou)
+
+        print(f"Frame {frame_idx}: mIoU = {frame_miou:.4f}")
+
+        out.write(frame)
         cv2.imshow('DETR Detection', frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
         frame_idx += 1
-    
+
     cap.release()
     out.release()
     cv2.destroyAllWindows()
+    # Compute Overall Metrics
+    overall_miou = np.mean(miou_list) if miou_list else 0
+    overall_map50 = compute_map50(all_detections, all_ground_truths)
+
+    print(f"Overall mIoU: {overall_miou:.4f}")
+    print(f"Overall mAP@50: {overall_map50:.4f}")
 
 # Example usage
 if __name__ == "__main__":
