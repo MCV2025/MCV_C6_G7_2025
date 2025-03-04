@@ -1,6 +1,6 @@
 
 from typing import Union
-import yaml
+from pathlib import Path
 
 import wandb
 import cv2
@@ -79,7 +79,7 @@ def run_model(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Selected device: --> {device}")
     
-    model_name = f"best model with parameters -> is={params['img_size']}, lr={params['lr']}, op={params['optimizer']}, ep={params['epochs']}, ded={params['detr_dim']}.pth"
+    model_name = f"best model with parameters -> lr={params['lr']}, op={params['optimizer']}, ded={params['detr_dim']}.pth"
 
     num_epochs = params['epochs']
 
@@ -136,7 +136,8 @@ def run_model(
 
             # Save the best model
             print("Best model. Saving weights")
-            torch.save(model.state_dict(), model_name)
+            model_path = Path("best_models") / model_name
+            torch.save(model.state_dict(), model_path)
         else:
             current_patience += 1
             if current_patience > patience:

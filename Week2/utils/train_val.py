@@ -32,15 +32,8 @@ def prepare_frame_for_detr(
     for ann in gt_list:
         if ann["label"] == "car":
             (x1, y1, x2, y2) = ann["bbox"]
-            box_w = x2 - x1
-            box_h = y2 - y1
-            # Convert to normalized [x, y, w, h]
-            boxes_list.append([
-                x1 / w,
-                y1 / h,
-                box_w / w,
-                box_h / h
-            ])
+            # Convert to normalized corner format [x0, y0, x1, y1]
+            boxes_list.append([x1 / w, y1 / h, x2 / w, y2 / h])
             labels_list.append(car_category_id)
 
     # If no car boxes skip frame
