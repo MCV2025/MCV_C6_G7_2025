@@ -19,18 +19,15 @@ class ObjectTracker:
     def _create_kalman_filter(self):
         """Create and initialize a Kalman filter for tracking"""
         kalman = cv2.KalmanFilter(4, 2)  # 4 state variables (x, y, dx, dy), 2 measurements (x, y)
+        
         kalman.transitionMatrix = np.array([[1, 0, 1, 0],
                                            [0, 1, 0, 1],
                                            [0, 0, 1, 0],
                                            [0, 0, 0, 1]], dtype=np.float32)
         kalman.measurementMatrix = np.array([[1, 0, 0, 0],
                                              [0, 1, 0, 0]], dtype=np.float32)
-        kalman.processNoiseCov = np.array([[1, 0, 0, 0],
-                                           [0, 1, 0, 0],
-                                           [0, 0, 100, 0],
-                                           [0, 0, 0, 100]], dtype=np.float32)
-        kalman.measurementNoiseCov = np.array([[1, 0],
-                                               [0, 1]], dtype=np.float32)
+        kalman.processNoiseCov = np.eye(4, dtype=np.float32) * 0.05  # Reduced process noise
+        kalman.measurementNoiseCov = np.eye(2, dtype=np.float32) * 0.1  # Lower measurement noise
         kalman.errorCovPost = np.eye(4, dtype=np.float32)
         return kalman
 
@@ -130,30 +127,11 @@ def detect_objects(frame):
         outputs = detr(img)
     return {
         "logits": outputs.logits.cpu(),  # Move back to CPU for processing
-        "pred_boxes": outputs.pred_boxes.cpu()
+        "bbox": outputs.pred_boxes.cpu()
     }
 
 # Function to draw bounding boxes
 def draw_boxes(frame, outputs, ground_truth, threshold=0.7):
-    h, w, _ = frame.shape
-    probas = outputs['logits'].softmax(-1)[0, :, :-1]  # Remove background class
-    keep = probas.max(-1).values > threshold
-    boxes = outputs['pred_boxes'][0, keep]  # Filter boxes
-    labels = probas.argmax(-1)[keep]
-
-    # Draw detected boxes in RED for all detected cars
-    for box, label in zip(boxes, labels):
-        x_center, y_center, width, height = box.cpu().numpy()
-        x1 = int((x_center - width / 2) * w)
-        y1 = int((y_center - height / 2) * h)
-        x2 = int((x_center + width / 2) * w)
-        y2 = int((y_center + height / 2) * h)
-        
-        label_name = CLASSES[label]
-        if label_name == "car":
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)  # Red box for all detected cars
-            cv2.putText(frame, label_name, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
-    # Draw ground truth boxes in GREEN
     for gt in ground_truth:
         x1, y1, x2, y2 = gt['bbox']
         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)  # Green for ground truth
@@ -194,10 +172,44 @@ def parse_cvat_xml(xml_file):
 
     return annotations
 
+def save_detections_mots(output_txt, tracked_objects, frame_idx):
+    with open(output_txt, "a") as f:
+        for obj_id, (kalman, bbox, _) in tracked_objects.items():
+            x1, y1, x2, y2 = bbox
+            width = x2 - x1
+            height = y2 - y1
+            conf = 1  # Fixed confidence
+            f.write(f"{frame_idx + 1}, {obj_id}, {x1}, {y1}, {width}, {height}, {conf:.2f}, -1, -1, -1\n")
+
+def filter_and_transform_detections(frame, outputs, threshold=0.7):
+    h, w, _ = frame.shape
+    probas = outputs['logits'].softmax(-1)[0, :, :-1]  # Remove background class
+    keep = probas.max(-1).values > threshold  # Keep only the boxes with confidence > 70%
+    boxes = outputs['bbox'][0, keep].cpu().numpy()  # Filter boxes based on the threshold
+    labels = probas.argmax(-1)[keep].cpu().numpy()  # Get the class labels
+
+    # Create the list of transformed annotations
+    transformed_annotations = []
+    for box, label in zip(boxes, labels):
+        label_name = CLASSES[label]
+        if label_name == "car":
+            x_center, y_center, width, height = box
+            x1 = int((x_center - width / 2) * w)
+            y1 = int((y_center - height / 2) * h)
+            x2 = int((x_center + width / 2) * w)
+            y2 = int((y_center + height / 2) * h)
+          
+            transformed_annotations.append({
+                'label': label_name,
+                'bbox': (x1, y1, x2, y2),
+                'parked': False  # Assuming parked information is not required for tracking here
+            })
+
+    return transformed_annotations
 
 tracker = ObjectTracker(iou_threshold=0.5)
 
-def process_video(video_path, output_path, annotation_file):
+def process_video(video_path, output_path, annotation_file, output_txt):
     cap = cv2.VideoCapture(str(video_path))  # Ensure path is a string
     assert cap.isOpened(), f"Error: Cannot open video {video_path}"
 
@@ -217,10 +229,18 @@ def process_video(video_path, output_path, annotation_file):
         if not ret:
             break
 
-        outputs = detect_objects(frame)
         ground_truth = annotations.get(frame_idx, [])
+        
+        # Get the detections from DETR
+        detections = detect_objects(frame)  # This will return the format suitable for tracking
+        filtered_detections = filter_and_transform_detections(frame, detections, threshold=0.7)
+        
+        # Update the tracker with the detections
+        tracked_objects = tracker.update(filtered_detections, frame_idx)
 
-        tracked_objects = tracker.update(ground_truth, frame_idx)
+        
+        # Save the MOTS format detections
+        save_detections_mots(output_txt, tracked_objects, frame_idx)
 
         # Correct unpacking of tracked_objects dictionary
         for obj_id, (kalman, bbox, _) in tracked_objects.items():
@@ -228,7 +248,7 @@ def process_video(video_path, output_path, annotation_file):
             cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
             cv2.putText(frame, f'ID {obj_id}', (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
 
-        frame = draw_boxes(frame, outputs, ground_truth)
+        frame = draw_boxes(frame, detections, ground_truth)
         out.write(frame)
 
         cv2.imshow('Tracking', frame)
@@ -244,4 +264,5 @@ def process_video(video_path, output_path, annotation_file):
 # Example usage
 if __name__ == "__main__":
     video_path = Path("AICity_data") / "train" / "S03" / "c010" / "vdo.avi"
-    process_video(video_path, "output.avi", "ai_challenge_s03_c010-full_annotation.xml")
+    output_txt = "TrackEval\data/trackers\mot_challenge\s03_c010-train\PerfectTracker\data\s03_c010-01.txt"
+    process_video(video_path, "output.avi", "ai_challenge_s03_c010-full_annotation.xml", output_txt=output_txt)
