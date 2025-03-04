@@ -42,7 +42,7 @@ class ObjectTracker:
         self.tracked_objects = {
             obj_id: (bbox, last_frame)
             for obj_id, (bbox, last_frame) in updated_tracks.items()
-            if frame_idx - last_frame <= 30  # Keep objects for 30 frames
+            if frame_idx - last_frame <= 5  # Keep objects for n frames
         }
         
         return updated_tracks
@@ -93,7 +93,7 @@ def compute_iou(box1, box2):
     return inter_area / union_area if union_area != 0 else 0
 
 # Function to process a frame through DETR
-def detect_objects(frame, threshold=0.7):
+def detect_objects(frame):
     img = transform(frame).unsqueeze(0).to(device)
     with torch.no_grad():
         outputs = detr(img)  # This returns a dictionary-like object
@@ -108,26 +108,7 @@ def detect_objects(frame, threshold=0.7):
 
 
 # Function to draw bounding boxes
-def draw_boxes(frame, outputs, ground_truth, threshold=0.7):
-    h, w, _ = frame.shape
-    probas = outputs['logits'].softmax(-1)[0, :, :-1]  # Remove background class
-    keep = probas.max(-1).values > threshold
-    boxes = outputs['bbox'][0, keep].cpu().numpy()  # Filter boxes based on the threshold
-    labels = probas.argmax(-1)[keep].cpu().numpy()  # Get the class labels
-
-    # # Draw detected boxes in RED for all detected cars
-    # for box, label in zip(boxes, labels):
-    #     x_center, y_center, width, height = box
-    #     x1 = int((x_center - width / 2) * w)
-    #     y1 = int((y_center - height / 2) * h)
-    #     x2 = int((x_center + width / 2) * w)
-    #     y2 = int((y_center + height / 2) * h)
-        
-    #     label_name = CLASSES[label]
-    #     if label_name == "car":
-    #         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)  # Red box for all detected cars
-    #         cv2.putText(frame, label_name, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
-    
+def draw_boxes(frame, ground_truth):    
     # Draw ground truth boxes in GREEN
     for gt in ground_truth:
         x1, y1, x2, y2 = gt['bbox']
@@ -263,7 +244,7 @@ def process_video(video_path, output_path, annotation_file, output_txt):
             cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)  
             cv2.putText(frame, f'ID {obj_id}', (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
 
-        frame = draw_boxes(frame, detections, ground_truth)
+        frame = draw_boxes(frame, ground_truth)
         
         out.write(frame)
         

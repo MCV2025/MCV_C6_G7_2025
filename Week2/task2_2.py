@@ -26,7 +26,7 @@ class ObjectTracker:
                                            [0, 0, 0, 1]], dtype=np.float32)
         kalman.measurementMatrix = np.array([[1, 0, 0, 0],
                                              [0, 1, 0, 0]], dtype=np.float32)
-        kalman.processNoiseCov = np.eye(4, dtype=np.float32) * 0.05  # Reduced process noise
+        kalman.processNoiseCov = np.eye(4, dtype=np.float32) * 1  # Reduced process noise
         kalman.measurementNoiseCov = np.eye(2, dtype=np.float32) * 0.1  # Lower measurement noise
         kalman.errorCovPost = np.eye(4, dtype=np.float32)
         return kalman
