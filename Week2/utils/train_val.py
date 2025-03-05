@@ -222,6 +222,9 @@ class Trainer:
         frame_idx = 0
         total_loss = 0.0
 
+        # all_predicted_boxes = []  # list for predicted boxes per frame
+        # all_ground_truth_boxes = []  # list for ground truth boxes per frame
+
         with torch.no_grad():
             while True:
                 ret, frame = cap.read()
@@ -230,7 +233,7 @@ class Trainer:
                 
                 if frame_idx in self.test_frames_idx:
                     # Prepare frame
-                    input_tensor, labels_list = prepare_frame_for_detr(
+                    input_tensor, labels_dict = prepare_frame_for_detr(
                         frame=frame,
                         frame_idx=frame_idx,
                         annotations=self.annotations,
@@ -240,18 +243,55 @@ class Trainer:
                     )
 
                     if input_tensor is None:
+                        # all_predicted_boxes.append([])
+                        # all_ground_truth_boxes.append([])
                         frame_idx += 1
                         continue
+                    
+                    # gt_boxes = labels_dict[0]['boxes'].cpu().numpy()  # shape: [N, 4]
+                    # all_ground_truth_boxes.append(gt_boxes.tolist())
+                    
+                    outputs = model(pixel_values=input_tensor, labels=labels_dict)
+
+                    h, w, _ = frame.shape
+                    probas = outputs['logits'].softmax(-1)[0]
+                    keep = probas[:, 1] > 0.7
+                    boxes = outputs['pred_boxes'][0, keep]  # Filter boxes
+                    labels = probas.argmax(-1)[keep]
+                    detected_bboxes = []  # List to store detected bounding boxes
 
                     # Forward pass (compute loss only, no backprop)
-                    outputs = model(pixel_values=input_tensor, labels=labels_list)
-                    loss = outputs.loss
 
+                    loss = outputs.loss
                     total_loss += loss.item()
+                    # print(labels)
+                    
+                    for box, label in zip(boxes, labels):
+                        # print("Raw box tensor:", box)
+                        # print("Converted to numpy:", box.cpu().numpy())
+                        # print("Label value:", label.item())
+
+                        if int(label.item()) == self.car_category_id:
+                            x_center, y_center, width, height = box.cpu().numpy()
+                            x1 = int((x_center - width / 2) * w)
+                            y1 = int((y_center - height / 2) * h)
+                            x2 = int((x_center + width / 2) * w)
+                            y2 = int((y_center + height / 2) * h)
+                            detected_box = (x1, y1, x2, y2)
+                            print((detected_box))
+                            assert isinstance(detected_box, tuple) and len(detected_box) == 4
+                            detected_bboxes.append(detected_box)  # Store detected bounding box
+
+                    # threshold = 0.5  # adjust as needed
+                    # keep = scores > threshold
+                    # pred_boxes = outputs.pred_boxes[0, scores].cpu().numpy()  # shape: [M, 4]
+                    # all_predicted_boxes.append(pred_boxes.tolist())
+
+
                 frame_idx += 1
 
         cap.release()
 
         frames_used = len(self.test_frames_idx)
         avg_test_loss = total_loss / frames_used if frames_used > 0 else 0.0
-        return avg_test_loss, 0.0  # Accuracy is 0.0 since DETR is detection-based
+        return avg_test_loss, detected_bboxes

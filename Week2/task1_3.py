@@ -13,17 +13,18 @@ wandb.login(key="50315889c64d6cfeba1b57dc714112418a50e134")
 
 params = {
     'img_size': 800,
-    'lr': 0.0001,
-    'optimizer': 'rmsprop',
+    'lr': 0.05,
+    'optimizer': 'adadelta',
 
     'momentum': 0.95,
-    'epochs': 50,
+    'epochs': 1,
 
     'detr_dim': 256,
     'freeze_backbone': 'False',
     'freeze_transformer': 'False',
     'freeze_bbox_predictor': 'False',
-    'extra_layers': 'True'
+    'extra_layers': 'True',
+    'k_fold': 'C'
 }
 
 config = dict(params)
@@ -54,7 +55,7 @@ assert k_fold_strategy in ["A", "B", "C"]
 if k_fold_strategy == "A":
     # Strategy A: fixed percentage splits
     train_pctg = 0.25
-    valid_pctg = 0.05
+    valid_pctg = 0.00
 
     train_frames_idx = frame_indices[:int(train_pctg * total_frames)].tolist()
     valid_frames_idx = frame_indices[int(train_pctg * total_frames):int((train_pctg + valid_pctg) * total_frames)].tolist()

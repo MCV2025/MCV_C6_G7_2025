@@ -37,18 +37,18 @@ def freeze_layers(params,
     # Freeze model's different components
     if params['freeze_backbone'] == 'True':
         for param in model.model.backbone.parameters():
-            param.requires_grad() == False
+            param.requires_grad = False
 
     if params['freeze_transformer'] == 'True':
         for param in model.model.encoder.parameters():
-            param.requires_grad == False
+            param.requires_grad = False
         
         for param in model.model.decoder.parameters():
-            param.requires_grad == False
+            param.requires_grad = False
 
     if params['freeze_bbox_predictor'] == 'True':
         for param in model.bbox_predictor.parameters():
-            param.requires_grad == False
+            param.requires_grad = False
             
             
     # Replace the classification head
@@ -83,7 +83,7 @@ def run_model(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Selected device: --> {device}")
     
-    model_name = f"best model with parameters -> lr={params['lr']}, op={params['optimizer']}, ded={params['detr_dim']}.pth"
+    model_name = f"best model with parameters_lr_{params['lr']}_op_{params['optimizer']}_ded_{params['detr_dim']}_fold_{params['k_fold']}.pth"
     print(model_name)
     num_epochs = params['epochs']
 
@@ -115,7 +115,7 @@ def run_model(
     )
 
     # Early stopping
-    patience = 200
+    patience = 20
     min_delta = 0.001
     best_val_loss = np.inf
     current_patience = 0
@@ -153,14 +153,32 @@ def run_model(
             'Validation Accuracy': val_accuracy,
         })
 
+    model_path = Path("best_models") / model_name
     print(f'Testing the best model with name: {model_name} ...')
-    model.load_state_dict(torch.load(model_name))  # Load best saved model
-    test_loss, test_accuracy = trainer.test(model, params, device)
+    model.load_state_dict(torch.load(model_path))  # Load best saved model
 
-    print(f"Final Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.4f}")
+    test_loss, all_pred_boxes = trainer.test(model, device)
+    print(all_pred_boxes)
+    output_filename = f"predicted_boxes_lr_{params['lr']}_op_{params['optimizer']}_ded_{params['detr_dim']}_fold_{params['k_fold']}.txt"
+    with open(output_filename, "w") as f:
+        for frame_idx, boxes in enumerate(all_pred_boxes):
+            f.write(f"Frame {frame_idx}:\n")
+            if boxes:  # if there are predictions for this frame
+                for box in boxes:
+                    print(f"Frame {frame_idx} box type: {type(box)}, value: {box}")
+
+                    # Write the box coordinates space-separated.
+                    # For example: "0.12 0.34 0.56 0.78"
+                    f.write(" ".join(map(str, box)))
+            else:
+                f.write("No detections\n")
+            f.write("\n")
+
+    print(f"Predicted boxes saved to {output_filename}")
+
+    print(f"Final Test Loss: {test_loss:.4f}")
 
     # Log test performance
     wandb.log({
-        'Test Loss': test_loss,
-        'Test Accuracy': test_accuracy
+        'Test Loss': test_loss
     })
