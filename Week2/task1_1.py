@@ -7,12 +7,14 @@ from torchvision.models.detection.transform import GeneralizedRCNNTransform
 from PIL import Image, ImageDraw, ImageFont
 from pathlib import Path
 from transformers import DetrForObjectDetection
+from ultralytics import YOLO
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Load the pretrained DETR model
-detr = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50").to(device)
-detr.eval()
+#model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50").to(device)
+model = YOLO("models/yolov8n.pt")
+model.eval()
 
 # Define transformation for input images
 transform = T.Compose([
@@ -75,8 +77,38 @@ def compute_map50(detected_boxes, gt_boxes):
 def detect_objects(frame):
     img = transform(frame).unsqueeze(0).to(device) # Add batch dimension
     with torch.no_grad():
-        outputs = detr(img)
+        outputs = model(img)
+        print(outputs)
     return outputs
+
+def detect_objects_yolo(frame):
+    results = model(frame)  # Direct inference
+    return results
+
+def draw_boxes_yolo(frame, results, ground_truth, threshold=0.3):
+    detected_bboxes = []  # Store detected bounding boxes
+
+    # Draw detected boxes in RED
+    for r in results:
+        for box in r.boxes:
+            x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())  # Get bounding box
+            conf = box.conf[0].item()  # Confidence score
+            label = int(box.cls[0].item())  # Class index
+           
+
+            if conf > threshold and model.names[label] == "car":
+                print(x1, y1, x2, y2)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)  # Red box for detected cars
+                cv2.putText(frame, model.names[label], (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+                detected_bboxes.append((x1, y1, x2, y2))
+
+    # Draw ground truth boxes in GREEN
+    for gt in ground_truth:
+        x1, y1, x2, y2 = gt['bbox']
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)  # Green for ground truth
+        cv2.putText(frame, gt['label'], (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+    return frame, detected_bboxes
 
 # Function to draw bounding boxes
 def draw_boxes(frame, outputs, ground_truth, threshold=0.7):
@@ -164,14 +196,14 @@ def process_video(video_path, output_path, annotation_file):
         if not ret:
             break
 
-        outputs = detect_objects(frame)
+        outputs = detect_objects_yolo(frame)
         ground_truth = annotations.get(frame_idx, [])
-        frame, detected_boxes= draw_boxes(frame, outputs, ground_truth)
+        frame, detected_boxes= draw_boxes_yolo(frame, outputs, ground_truth)
         out.write(frame)
 
-        print(detected_boxes)
+        #print(detected_boxes)
         gt_boxes = [gt['bbox'] for gt in ground_truth]
-        print(gt_boxes)
+        #print(gt_boxes)
 
         # Store detections & ground truths for overall evaluation
         all_detections.extend(detected_boxes)
@@ -202,4 +234,4 @@ def process_video(video_path, output_path, annotation_file):
 # Example usage
 if __name__ == "__main__":
     video_path = Path("AICity_data") / "train" / "S03" / "c010" / "vdo.avi"
-    process_video(video_path, "output.avi", "ai_challenge_s03_c010-full_annotation.xml")
+    process_video(video_path, "yolo2.avi", "ai_challenge_s03_c010-full_annotation.xml")
