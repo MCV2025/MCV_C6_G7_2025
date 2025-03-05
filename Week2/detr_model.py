@@ -158,24 +158,20 @@ def run_model(
     model.load_state_dict(torch.load(model_path))  # Load best saved model
 
     test_loss, all_pred_boxes = trainer.test(model, device)
-    print(all_pred_boxes)
     output_filename = f"predicted_boxes_lr_{params['lr']}_op_{params['optimizer']}_ded_{params['detr_dim']}_fold_{params['k_fold']}.txt"
     with open(output_filename, "w") as f:
         for frame_idx, boxes in enumerate(all_pred_boxes):
             f.write(f"Frame {frame_idx}:\n")
-            if boxes:  # if there are predictions for this frame
+            if boxes:  # If there are predictions for this frame
                 for box in boxes:
-                    print(f"Frame {frame_idx} box type: {type(box)}, value: {box}")
-
-                    # Write the box coordinates space-separated.
-                    # For example: "0.12 0.34 0.56 0.78"
-                    f.write(" ".join(map(str, box)))
+                    # Format each box as a comma-separated string
+                    formatted_box = ", ".join(map(str, box))
+                    f.write(f"  {formatted_box}\n")
             else:
-                f.write("No detections\n")
+                f.write("  No detections\n")
             f.write("\n")
 
     print(f"Predicted boxes saved to {output_filename}")
-
     print(f"Final Test Loss: {test_loss:.4f}")
 
     # Log test performance

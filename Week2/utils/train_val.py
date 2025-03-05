@@ -222,7 +222,7 @@ class Trainer:
         frame_idx = 0
         total_loss = 0.0
 
-        # all_predicted_boxes = []  # list for predicted boxes per frame
+        all_predicted_boxes = []  # list for predicted boxes per frame
         # all_ground_truth_boxes = []  # list for ground truth boxes per frame
 
         with torch.no_grad():
@@ -278,9 +278,10 @@ class Trainer:
                             x2 = int((x_center + width / 2) * w)
                             y2 = int((y_center + height / 2) * h)
                             detected_box = (x1, y1, x2, y2)
-                            print((detected_box))
+                            detected_bboxes.append(detected_box)
                             assert isinstance(detected_box, tuple) and len(detected_box) == 4
-                            detected_bboxes.append(detected_box)  # Store detected bounding box
+                    
+                    all_predicted_boxes.append(detected_bboxes)  # Store detected bounding box
 
                     # threshold = 0.5  # adjust as needed
                     # keep = scores > threshold
@@ -294,4 +295,4 @@ class Trainer:
 
         frames_used = len(self.test_frames_idx)
         avg_test_loss = total_loss / frames_used if frames_used > 0 else 0.0
-        return avg_test_loss, detected_bboxes
+        return avg_test_loss, all_predicted_boxes

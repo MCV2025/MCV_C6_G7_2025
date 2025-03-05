@@ -13,18 +13,18 @@ wandb.login(key="50315889c64d6cfeba1b57dc714112418a50e134")
 
 params = {
     'img_size': 800,
-    'lr': 0.05,
+    'lr': 0.01,
     'optimizer': 'adadelta',
 
     'momentum': 0.95,
-    'epochs': 1,
+    'epochs': 50,
 
     'detr_dim': 256,
     'freeze_backbone': 'False',
     'freeze_transformer': 'False',
     'freeze_bbox_predictor': 'False',
     'extra_layers': 'True',
-    'k_fold': 'C'
+    'k_fold': 'B'
 }
 
 config = dict(params)

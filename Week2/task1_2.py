@@ -17,7 +17,7 @@ def objective_model_cv(trial):
     params = {
         # 'batch_size': trial.suggest_categorical('batch_size', [16]),
         'img_size': trial.suggest_categorical('img_size', [800]),
-        'lr': trial.suggest_categorical('lr', [0.02]),  # 0.0001, 0.001, 0.01, 0.1, 0.2, 0.3
+        'lr': trial.suggest_categorical('lr', [0.0001, 0.001, 0.01, 0.1, 0.2, 0.3]),  # 0.0001, 0.001, 0.01, 0.1, 0.2, 0.3
         'optimizer': trial.suggest_categorical('optimizer', ['adadelta']),  # adadelta, adam, sgd, RMSprop
         # 'unfroze': trial.suggest_categorical('unfroze', [20]),
 
@@ -30,7 +30,7 @@ def objective_model_cv(trial):
 
         'momentum': trial.suggest_float('momentum', 0.95, 0.95),
         # 'dropout': trial.suggest_categorical('dropout', ['0']),
-        'epochs': trial.suggest_categorical('epochs', [5]),
+        'epochs': trial.suggest_categorical('epochs', [50]),
         # 'output': trial.suggest_categorical('output', [2]),
 
         'detr_dim': trial.suggest_categorical('detr_dim', [256]),
