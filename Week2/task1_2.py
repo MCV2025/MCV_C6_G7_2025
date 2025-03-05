@@ -17,7 +17,7 @@ def objective_model_cv(trial):
     params = {
         # 'batch_size': trial.suggest_categorical('batch_size', [16]),
         'img_size': trial.suggest_categorical('img_size', [800]),
-        'lr': trial.suggest_categorical('lr', [0.0001, 0.001, 0.01, 0.1, 0.2, 0.3]),  # 0.0001, 0.001, 0.01, 0.1, 0.2, 0.3
+        'lr': trial.suggest_categorical('lr', [0.0001, 0.001, 0.01, 0.1, 0.2]),  # 0.0001, 0.001, 0.01, 0.1, 0.2, 0.3
         'optimizer': trial.suggest_categorical('optimizer', ['adadelta']),  # adadelta, adam, sgd, RMSprop
         # 'unfroze': trial.suggest_categorical('unfroze', [20]),
 
@@ -83,4 +83,4 @@ def objective_model_cv(trial):
 
 
 study = optuna.create_study(direction="maximize", study_name='c6-Week1')
-study.optimize(objective_model_cv, n_trials=1)
+study.optimize(objective_model_cv, n_trials=10)

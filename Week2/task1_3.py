@@ -24,7 +24,7 @@ params = {
     'freeze_transformer': 'False',
     'freeze_bbox_predictor': 'False',
     'extra_layers': 'True',
-    'k_fold': 'B'
+    'k_fold': 'A'
 }
 
 config = dict(params)
