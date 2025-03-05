@@ -20,13 +20,13 @@ class ObjectTracker:
     def _create_kalman_filter(self):
         """Create and initialize a Kalman filter for tracking"""
         kalman = cv2.KalmanFilter(4, 2)  # 4 state variables (x, y, dx, dy), 2 measurements (x, y)
-        kalman.transitionMatrix = np.array([[1, 0, 1, 0],
-                                           [0, 1, 0, 1],
+        kalman.transitionMatrix = np.array([[1, 0, 1/30, 0],
+                                           [0, 1, 0, 1/30],
                                            [0, 0, 1, 0],
                                            [0, 0, 0, 1]], dtype=np.float32)
         kalman.measurementMatrix = np.array([[1, 0, 0, 0],
                                              [0, 1, 0, 0]], dtype=np.float32)
-        kalman.processNoiseCov = np.eye(4, dtype=np.float32) * 1  # Reduced process noise
+        kalman.processNoiseCov = np.eye(4, dtype=np.float32) * 1e-4  # Reduced process noise
         kalman.measurementNoiseCov = np.eye(2, dtype=np.float32) * 0.1  # Lower measurement noise
         kalman.errorCovPost = np.eye(4, dtype=np.float32)
         return kalman
@@ -219,7 +219,7 @@ def filter_and_transform_detections(frame, outputs, threshold=0.7):
     
     return apply_nms(transformed_annotations)
 
-tracker = ObjectTracker(iou_threshold=0.5)
+tracker = ObjectTracker(iou_threshold=0.4)
 
 def process_video(video_path, output_path, annotation_file, output_txt):
     cap = cv2.VideoCapture(str(video_path))  # Ensure path is a string
