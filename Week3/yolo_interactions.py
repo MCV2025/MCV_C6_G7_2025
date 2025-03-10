@@ -1,3 +1,45 @@
+"""
+YOLO Object Detection and Finetuning Script
+===========================================
+
+This script provides functionalities for finetuning a YOLO model and using it to predict 
+object bounding boxes in video sequences. It supports two primary modes of operation:
+
+1. **Finetune Mode**: Trains the YOLO model using a specified strategy, batch size, and 
+   number of epochs.
+2. **Predict Mode**: Uses a trained YOLO model to detect objects in a video and saves 
+   the results in a JSON file.
+
+Dependencies:
+-------------
+- `ultralytics` (for YOLO model operations)
+- `OpenCV` (for video processing)
+- `argparse` (for command-line arguments handling)
+- `json` (for saving predictions)
+
+Functions:
+----------
+- `detect_with_yolo(model, frame, conf_thresh: float) -> tuple`:
+    Detects objects in a given video frame using a YOLO model and draws bounding boxes.
+- `finetune_yolo(output_folder: Path, strategy: str, batch_size: int, epochs: int) -> None`:
+    Finetunes a YOLO model with specified training parameters.
+- `predict_frames_with_yolo(video_path: Path, weights_path: Path, output_file: Path, conf_thresh: float = 0.7) -> None`:
+    Runs object detection on video frames and saves results in JSON format.
+
+Usage:
+------
+Run the script from the command line with the appropriate mode and arguments.
+
+Finetune Example:
+    ```
+    python script.py finetune --output_folder yolo_output --strategy B --batch_size 16 --epochs 50
+    ```
+
+Predict Example:
+    ```
+    python script.py predict --video_path input.mp4 --weights_path best_weights.pt --output_file predictions.json --conf_thresh 0.5
+    ```
+"""
 
 import argparse
 from ultralytics import YOLO
