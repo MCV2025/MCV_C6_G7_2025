@@ -6,7 +6,6 @@ from ultralytics import YOLO
 import cv2
 import shutil
 
-# Definir y parsear argumentos
 parser = argparse.ArgumentParser(description="Object tracking script")
 parser.add_argument("--sequence", required=True, help="Nombre de la secuencia (ej. S01)")
 parser.add_argument("--case", required=True, help="Nombre del caso (ej. c002)")
@@ -20,18 +19,16 @@ visualize = args.visualize
 parked = args.parked  # Store the value of the --parked argument
 seq_case_name = f"{sequence}_{case}"
 
-# Construir path del directorio GT
+
 gt_dir = Path(f"TrackEval/data/gt/mot_challenge/{seq_case_name}-train/{seq_case_name}-01")
 gt_dir.mkdir(parents=True, exist_ok=True)
 
-# 📌 Crear el archivo seqinfo.ini si no existe
 seqinfo_path = gt_dir / "seqinfo.ini"
 if not seqinfo_path.exists():
-    seq_length = 1996  # Cambia esto si la longitud de la secuencia varía
+    seq_length = 1996  
     with open(seqinfo_path, "w") as f:
         f.write(f"[Sequence]\nname={seq_case_name}\nseqLength={seq_length}\n")
 
-# 📌 Crear los archivos s01_c001-all.txt, s01_c001-test.txt, s01_c001-train.txt
 txt_files = ["all", "test", "train"]
 seqmap_path = Path(f"TrackEval/data/gt/mot_challenge/seqmaps")
 for txt in txt_files:
@@ -41,14 +38,13 @@ for txt in txt_files:
             f.write("name\n")
             f.write(f"{seq_case_name}-01\n")
 
-# 📌 Crear el directorio GT si no existe
+
 gt_subdir = gt_dir / "gt"
 gt_subdir.mkdir(parents=True, exist_ok=True)
 
 source_gt_file = Path(f"aic19-track1-mtmc-train/train/{sequence}/{case}/gt/gt.txt")
 destination_gt_file = gt_subdir / "gt.txt"
 
-# Copy gt.txt if it does not exist in the destination folder
 if source_gt_file.exists() and not destination_gt_file.exists():
     shutil.copy(source_gt_file, destination_gt_file)
     print(f"Copied ground truth file to {destination_gt_file}")
@@ -65,22 +61,20 @@ else:
 if output_file.exists():
     output_file.unlink()
 
-# Cargar modelo YOLOv8 y tracker SORT
+
 model = YOLO("yolov8l.pt")
+
 tracker = Sort()
 
-# Cargar vídeo
 video_path = Path(f"aic19-track1-mtmc-train/train/{sequence}/{case}/vdo.avi")
 cap = cv2.VideoCapture(str(video_path))
 
-# Cargar ROI
 roi_path = Path(f"aic19-track1-mtmc-train/train/{sequence}/{case}/roi.jpg")
 roi_mask = cv2.imread(str(roi_path), cv2.IMREAD_GRAYSCALE)
 roi_mask = roi_mask.astype(np.uint8)
 
 use_roi = True
 
-# Cargar ground truth si existe
 gt_file = Path(f"aic19-track1-mtmc-train/train/{sequence}/{case}/gt/gt.txt")
 
 gt_data = {}
@@ -101,7 +95,6 @@ movement_history = {}
 max_no_move_frames = 10  # Number of frames an object can stay without moving to be considered "parked"
 tolerance = 10  # Tolerance for small movements (in pixels)
 
-# Función para guardar resultados
 def save_detections_mots(output_txt, tracked_objects, frame_idx, movement_history, max_no_move_frames, parked):
     with open(output_txt, "a") as f:
         for obj in tracked_objects:
