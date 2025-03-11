@@ -27,12 +27,9 @@ while cap.has_frames():
             bbox, class_id, confidence = detection
 
             feature_points = extract_features(frame, region=bbox)
-            if feature_points is None or len(feature_points) == 0:
-                
-            
+             
             # Track these points using the computed optical flow
             tracked_points = track_features_dense(feature_points, flow_vectors)
-            
             
             # Aggregate tracked points to compute a measurement (e.g., centroid)
             if tracked_points is not None and len(tracked_points) > 0:
@@ -42,8 +39,9 @@ while cap.has_frames():
                 kalman_state = kalman_filter.predict()         # Predict next state
                 kalman_state = kalman_filter.update(centroid)    # Update with new measurement
 
-    # Use the updated state for further tracking or visualization
-    updated_position = kalman_state[:2]
+                # Use the updated state for further tracking or visualization
+                updated_position = kalman_state[:2]
+                
             # Optionally, refine bbox based on the movement of the feature points
             detection = refine_bbox(detection, tracked_points)
     

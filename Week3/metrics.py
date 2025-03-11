@@ -174,7 +174,6 @@ def convert_tracked_json_to_trackeval(json_path):
                 "bbox": [x1, y1, x2, y2]
             })
 
-    print(pred_data)
     return pred_data
 
 
