@@ -40,14 +40,64 @@ Predict Example:
     python script.py predict --video_path input.mp4 --weights_path best_weights.pt --output_file predictions.json --conf_thresh 0.5
     ```
 """
-
+import numpy as np
 import argparse
 from ultralytics import YOLO
 from pathlib import Path
 import cv2
 import json
+from sort import Sort
 
-def detect_with_yolo(model, frame, conf_thresh: float) -> tuple:
+
+sort_tracker = Sort(max_age=1, min_hits=3, iou_threshold=0.3)
+
+def convert_ndarray_to_list(obj):
+    """ 
+    Recursively converts numpy arrays to lists for JSON serialization 
+    """
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    
+    elif isinstance(obj, dict):
+        return {k: convert_ndarray_to_list(v) for k, v in obj.items()}
+    
+    elif isinstance(obj, list):
+        return [convert_ndarray_to_list(i) for i in obj]
+    
+    else:
+        return obj
+
+def detect_and_track_with_yolo(model, frame, conf_thresh=0.7):
+    """
+    Uses Sort to track the detected objects with yolo
+    """
+    detections, annotated_frame = detect_with_yolo(model, frame, conf_thresh)
+    
+    if len(detections) == 0:
+        return np.empty((0, 5)), annotated_frame
+
+    sort_dets = []
+
+    for det in detections:
+        bbox, _, conf = det
+        x1, y1, x2, y2 = bbox
+        sort_dets.append([x1, y1, x2, y2, conf])
+
+    # Update the SORT tracker
+    sort_dets = np.array(sort_dets)
+    tracked_objects = sort_tracker.update(sort_dets)  # tracked_objects: each row [x1, y1, x2, y2, track_id]
+    
+    # Annotate the frame with the track IDs
+    for obj in tracked_objects:
+        x1, y1, x2, y2, track_id = obj
+
+        cv2.putText(annotated_frame, f"ID: {int(track_id)}", (int(x1), int(y1)-10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+        
+
+    return tracked_objects, annotated_frame
+
+def detect_with_yolo(model, frame, conf_thresh: float=0.7) -> tuple:
     """
     Execute the model (Yolo finetuned) to detect the bboxes from the video.
     """
@@ -103,13 +153,14 @@ def predict_frames_with_yolo(video_path: Path, weights_path: Path, output_file: 
 
         frame_id += 1
 
-        frame_predicts, frame = detect_with_yolo(model, frame, conf_thresh=conf_thresh)
+        frame_predicts, frame = detect_and_track_with_yolo(model, frame, conf_thresh=conf_thresh)
         predicions[frame_id] = frame_predicts
 
     cap.release()
 
-    with open(output_file, 'w') as f:
-        json.dump(predicions, f, indent=4)
+    with open(output_file, "w") as f:
+        json.dump(convert_ndarray_to_list(predicions), f, indent=4)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
