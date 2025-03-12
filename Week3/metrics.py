@@ -216,14 +216,14 @@ def parse_ground_truth_xml(xml_path):
 
 if __name__ == "__main__":
     # Define paths to your ground truth XML and tracked predictions JSON
-    gt_xml_path = Path("dataset/ai_challenge_s03_c010-full_annotation.xml")
-    tracked_json_path = Path("ft_yolo_preds_tracks.json")
+    gt_xml_path = Path("TrackEval/TrackEval/data/gt/mot_challenge/s03_c010-train/s03_c010-01/gt/gt.txt.txt")
+    tracked_json_path = Path("TrackEval/TrackEval/data/trackers/mot_challenge/PerfectTracker/data/s03_c010-01.txt")
     
-    # Convert ground truth and predictions to TrackEval format
-    gt_data = parse_ground_truth_xml(gt_xml_path)
-    pred_data = convert_tracked_json_to_trackeval(tracked_json_path)
+    # # Convert ground truth and predictions to TrackEval format
+    # gt_data = parse_ground_truth_xml(gt_xml_path)
+    # pred_data = convert_tracked_json_to_trackeval(tracked_json_path)
     
     # Evaluate tracking metrics
-    metrics = evaluate_tracking_with_trackeval(gt_data, pred_data)
+    metrics = evaluate_tracking_with_trackeval(gt_xml_path, tracked_json_path)
     print("HOTA Score:", metrics['HOTA'])
     print("IDF1 Score:", metrics['IDF1'])
