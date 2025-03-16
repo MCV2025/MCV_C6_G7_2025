@@ -2,6 +2,64 @@ import cv2
 import numpy as np
 from Week4.yolo.yolo_interactions import detect_and_track_with_yolo as dt_yolo
 from pathlib import Path
+
+# ----------------------------
+# Standalone Kalman Filter Update Function
+# ----------------------------
+def update_kalman_filter(track, detection):
+    """
+    Updates the local track's state using an independent Kalman filter.
+    
+    Parameters:
+      - track: A dictionary representing a local track that may contain keys:
+               'centroid' (current [x, y] position), 'kalman_filter', 'kalman_state'
+      - detection: A dictionary or object containing a 'centroid' attribute (the new measurement).
+    
+    Returns:
+      The updated track dictionary with keys 'kalman_state', 'centroid', and 'velocity'.
+    """
+    # Extract the detection centroid.
+    centroid = detection['centroid'] if isinstance(detection, dict) else detection.centroid
+
+    # Initialize the Kalman filter if not already present in the track.
+    if 'kalman_filter' not in track or track['kalman_filter'] is None:
+        # Create a Kalman filter with state vector [x, y, vx, vy] and measurement vector [x, y]
+        kf = cv2.KalmanFilter(4, 2)
+        # Set initial state: position is detection centroid, velocity is zero.
+        initial_state = np.array([[centroid[0]], [centroid[1]], [0.], [0.]], dtype=np.float32)
+        kf.statePre = initial_state.copy()
+        kf.statePost = initial_state.copy()
+        # State transition matrix (constant velocity model)
+        kf.transitionMatrix = np.eye(4, dtype=np.float32)
+        # Measurement matrix (measuring position only)
+        kf.measurementMatrix = np.array([[1, 0, 0, 0],
+                                         [0, 1, 0, 0]], dtype=np.float32)
+        # Process noise covariance (tune based on dynamics)
+        kf.processNoiseCov = np.eye(4, dtype=np.float32) * 1e-2
+        # Measurement noise covariance (tune based on sensor noise)
+        kf.measurementNoiseCov = np.eye(2, dtype=np.float32) * 1e-1
+        # Save the Kalman filter in the track.
+        track['kalman_filter'] = kf
+    else:
+        kf = track['kalman_filter']
+    
+    # Prediction step: predict the next state.
+    predicted_state = kf.predict()
+    
+    # Correction step: update with the new measurement.
+    measurement = np.array([[centroid[0]], [centroid[1]]], dtype=np.float32)
+    updated_state = kf.correct(measurement)
+    
+    # Flatten the state vector [x, y, vx, vy] into a list.
+    state_values = updated_state.flatten().tolist()
+    
+    # Update the track with the new information.
+    track['kalman_state'] = state_values     # Full state vector.
+    track['centroid'] = state_values[:2]       # Updated position.
+    track['velocity'] = state_values[2:]       # Velocity components.
+    
+    return track
+
 # ----------------------------
 # Step 1: Camera Calibration & Initialization
 # ----------------------------
@@ -58,8 +116,8 @@ def compute_centroid(bbox):
 def create_local_track(camera_id, track_id, bbox, centroid, embedding):
     """
     Create a local track object that stores tracking info for a detected vehicle.
+    Optionally, include Kalman filter information for motion prediction.
     """
-    # For example, use a dictionary to store track info.
     track = {
         "camera_id": camera_id,
         "local_id": track_id,
@@ -67,10 +125,11 @@ def create_local_track(camera_id, track_id, bbox, centroid, embedding):
         "centroid": centroid,
         "embedding": embedding,
         "position_global": None,  # To be updated via homography.
-        # Optionally, you may add a Kalman filter or motion information here.
+        "kalman_filter": None,    # To be initialized on first update.
+        "kalman_state": None,     # Will store [x, y, vx, vy]
+        "velocity": None,
     }
     return track
-
 # ----------------------------
 # Step 4: Global ID Management & Data Association Across Cameras
 # ----------------------------
@@ -114,7 +173,7 @@ def process_multicamera_feeds(calibrated_cameras, yolo_model, time_threshold, sp
         for cam_id, cam_data in calibrated_cameras.items():
             frame = get_frame(cam_data["feed"])  # Retrieve current frame.
             # Use detect_and_track_with_yolo to get tracked objects and annotated frame.
-            tracked_objects, annotated_frame = detect_and_track_with_yolo(yolo_model, frame, conf_thresh=0.7)
+            tracked_objects, annotated_frame = detect_track_yolo(yolo_model, frame, conf_thresh=0.7)
             
             local_tracks = []  # Local tracks for the current camera.
             for obj in tracked_objects:
@@ -125,6 +184,8 @@ def process_multicamera_feeds(calibrated_cameras, yolo_model, time_threshold, sp
                 embedding = extract_vehicle_embedding(crop)
                 
                 track = create_local_track(cam_id, track_id, bbox, centroid, embedding)
+                # Update motion info with the new measurement (centroid).
+                track = update_kalman_filter(track, {"centroid": centroid})
                 # Map the local centroid to global coordinates using the homography matrix.
                 track["position_global"] = apply_homography(centroid, cam_data["homography"])
                 
