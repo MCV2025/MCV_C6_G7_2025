@@ -3,16 +3,22 @@ import numpy as np
 from pathlib import Path
 from sklearn.neighbors import KNeighborsClassifier
 from tqdm import tqdm
+from sklearn.preprocessing import StandardScaler
 
 # Specify sequence and cases
 sequence = "s03"
-cases = ["c010", "c011"]  # Your two cameras
+cases = ["c010", "c011", "c012", "c013", "c014", "c015"]  # Your two cameras
 
 # Camera transitions (simplified for just two cameras)
 camera_transitions = {
     "0": ["1"],
-    "1": ["0"]
+    "1": ["0", "2"],
+    "2": ["1", "3"],
+    "3": ["2", "4", "5"],
+    "4": ["3"],
+    "5": ["3"]
 }
+
 
 def match_across_cameras_knn(features_data, time_constraint=50, similarity_threshold=0.7, k=3):
     print("Starting cross-camera matching using KNN...")
@@ -69,7 +75,8 @@ def match_across_cameras_knn(features_data, time_constraint=50, similarity_thres
                 continue
             
             all_features2 = np.array(all_features2)
-            
+            scaler = StandardScaler()
+            all_features2 = scaler.fit_transform(all_features2)
             # Train KNN classifier
             knn = KNeighborsClassifier(n_neighbors=k, metric="cosine")
             knn.fit(all_features2, track_labels2)
@@ -126,7 +133,7 @@ if len(all_features) < 2:
     print("Not enough feature data loaded to perform matching")
 else:
     # Perform multi-camera tracking with KNN
-    matched_tracks = match_across_cameras_knn(all_features, time_constraint=100, similarity_threshold=0.7, k=3)
+    matched_tracks = match_across_cameras_knn(all_features, time_constraint=100, similarity_threshold=0.99, k=5)
 
     # Save the results
     output_path = Path(f"output/{sequence}_multicamera_tracks_knn.json")

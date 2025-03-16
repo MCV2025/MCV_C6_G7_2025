@@ -33,7 +33,7 @@ seq_case_name = f"{sequence}_{case}"
 # Camera relationships based on spatial layout
 camera_transitions = {
     "0": ["1"],
-    "1": ["0", "2"],
+    "1": ["0", "2", "3"],
     "2": ["1", "3"],
     "3": ["2", "4", "5"],
     "4": ["3"],
@@ -91,23 +91,6 @@ def determine_next_cameras(track_id, x1, x2):
             return [c for c in camera_transitions if camera_id in camera_transitions[c]]  # Moving backward
     return []  # No movement detected
 
-def match_across_cameras(features_data, time_constraint=50):
-    matched_tracks = {}
-    for cam_id, cam_data in features_data.items():
-        for track in cam_data:
-            track_id = track["track_id"]
-            features = np.array(track["features"])
-            next_expected = track.get("next_expected_cameras", [])
-            
-            for neighbor_cam in next_expected:
-                if neighbor_cam in features_data:
-                    for neighbor_track in features_data[neighbor_cam]:
-                        neighbor_features = np.array(neighbor_track["features"])
-                        similarity = 1 - cosine(features, neighbor_features)
-                        
-                        if similarity > 0.8 and abs(track["frame"] - neighbor_track["frame"]) <= time_constraint:
-                            matched_tracks[track_id] = neighbor_track["track_id"]
-    return matched_tracks
 
 video_path = Path(f"aic19-track1-mtmc-train/train/{sequence}/{case}/vdo.avi")
 cap = cv2.VideoCapture(str(video_path))
@@ -118,8 +101,8 @@ feature_results = []
 
 # Initialize movement history
 movement_history = {}
-max_no_move_frames = 10  # Threshold to consider a car as parked
-tolerance = 10  # Small movement tolerance
+max_no_move_frames = 100  # Threshold to consider a car as parked
+tolerance = 5  # Small movement tolerance
 
 while cap.isOpened():
     ret, frame = cap.read()
@@ -134,7 +117,7 @@ while cap.isOpened():
 
     # # Create a mask with white from the middle to bottom, black from top to middle
     # roi_mask2 = np.zeros((height, width), dtype=np.uint8)
-    # roi_mask2[int(height//6.5):, :] = 255  # Make the bottom half white
+    # roi_mask2[int(height//4):, :] = 255  # Make the bottom half white
 
     # mask = cv2.bitwise_and(roi_mask, roi_mask2)
 

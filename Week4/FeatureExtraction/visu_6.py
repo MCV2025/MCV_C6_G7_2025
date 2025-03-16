@@ -9,21 +9,21 @@ cases = ["c010", "c011", "c012", "c013", "c014", "c015"]  # Cameras
 
 # Custom start delays (in seconds, None for automatic calculation)
 custom_delays = {
-    "c010": 3.5,  # Delay for video c010
-    "c011": 3,  # Delay for video c011
-    "c012": 2,
+    "c010": 10,
+    "c011": 9,
+    "c012": 6,
     "c013": 0,
-    "c014": 1,  # Automatic delay calculation
+    "c014": 3,
     "c015": 0,
 }
 
 # Target FPS (standardize frame rate for all videos)
-target_fps = 30  # Desired frame rate (e.g., 30 FPS)
+target_fps = 10
 frame_interval = 1 / target_fps  # Time between frames in seconds
 
 # Gather video paths
 for case in cases:
-    video_path = f"aic19-track1-mtmc-train/train/{sequence}/{case}/vdo.avi"
+    video_path = f"videos/{sequence}_{case}.avi"
     videos.append(video_path)
 
 # Open video captures
@@ -66,17 +66,23 @@ while True:
         # Check if the video is in its delay period
         if frame_indices[i] < delays[i] * target_fps:
             # Add black frame during delay
-            frames.append(np.zeros((video_height, video_width, 3), dtype=np.uint8))
+            frame = np.zeros((video_height, video_width, 3), dtype=np.uint8)
         else:
             # Play video normally
             ret, frame = cap.read()
             if not ret:
                 # Add black frame if video ends
-                frames.append(np.zeros((video_height, video_width, 3), dtype=np.uint8))
+                frame = np.zeros((video_height, video_width, 3), dtype=np.uint8)
             else:
                 # Resize frame for consistency
                 frame = cv2.resize(frame, (video_width, video_height))
-                frames.append(frame)
+
+        # Draw frame number in red
+        frame_number_text = f"Frame: {frame_indices[i]}"
+        cv2.putText(frame, frame_number_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+
+        frames.append(frame)
+        
         # Increment frame counter
         frame_indices[i] += 1
 
@@ -90,7 +96,7 @@ while True:
     time_text = f"Time: {elapsed_time:.2f} s"
 
     # Overlay time on the mosaic
-    cv2.putText(mosaic, time_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+    cv2.putText(mosaic, time_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
     # Display synchronized mosaic
     cv2.imshow("Synchronized Mosaic with Time Overlay", mosaic)
