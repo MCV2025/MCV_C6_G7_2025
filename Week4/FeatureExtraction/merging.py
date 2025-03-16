@@ -1,11 +1,10 @@
 import json
 import numpy as np
 from pathlib import Path
-from scipy.spatial.distance import cosine
-import time
-from tqdm import tqdm  # For progress bars
+from sklearn.neighbors import KNeighborsClassifier
+from tqdm import tqdm
 
-# Specify your sequence and cases
+# Specify sequence and cases
 sequence = "s03"
 cases = ["c010", "c011"]  # Your two cameras
 
@@ -15,9 +14,9 @@ camera_transitions = {
     "1": ["0"]
 }
 
-def match_across_cameras(features_data, time_constraint=50, similarity_threshold=0.8):
-    print("Starting cross-camera matching...")
-    start_time = time.time()
+def match_across_cameras_knn(features_data, time_constraint=50, similarity_threshold=0.7, k=3):
+    print("Starting cross-camera matching using KNN...")
+    
     matched_tracks = {}
     
     # Extract camera IDs
@@ -26,98 +25,84 @@ def match_across_cameras(features_data, time_constraint=50, similarity_threshold
         print(f"Not enough cameras to match. Found: {cam_ids}")
         return matched_tracks
     
-    # For each pair of cameras
-    for i, cam_id1 in enumerate(cam_ids):
-        # Only process if this camera has transitions
+    # Process each camera
+    for cam_id1 in cam_ids:
         if cam_id1 not in camera_transitions:
             continue
             
         print(f"Processing camera {cam_id1}...")
-        
-        # Get all tracks for this camera
         tracks1 = features_data[cam_id1]
         
-        # Group tracks by ID to avoid duplicate comparisons
-        tracks1_by_id = {}
+        # Group features by track ID
+        track_features1 = {}
         for track in tracks1:
             track_id = track["track_id"]
-            if track_id not in tracks1_by_id:
-                tracks1_by_id[track_id] = []
-            tracks1_by_id[track_id].append(track)
+            if track_id not in track_features1:
+                track_features1[track_id] = []
+            track_features1[track_id].append(track["features"])
         
-        # For each neighboring camera
+        # Process neighboring cameras
         for cam_id2 in camera_transitions[cam_id1]:
             if cam_id2 not in features_data:
                 continue
                 
             print(f"  Comparing with camera {cam_id2}...")
-            
-            # Get all tracks for neighboring camera
             tracks2 = features_data[cam_id2]
             
-            # Group tracks by ID
-            tracks2_by_id = {}
+            track_features2 = {}
             for track in tracks2:
                 track_id = track["track_id"]
-                if track_id not in tracks2_by_id:
-                    tracks2_by_id[track_id] = []
-                tracks2_by_id[track_id].append(track)
+                if track_id not in track_features2:
+                    track_features2[track_id] = []
+                track_features2[track_id].append(track["features"])
             
-            # For each track ID in first camera
-            for track_id1, tracks1_same_id in tqdm(tracks1_by_id.items(), desc=f"Camera {cam_id1} tracks"):
+            # Prepare data for KNN
+            all_features2 = []
+            track_labels2 = []
+            
+            for track_id2, feature_list in track_features2.items():
+                for feature in feature_list:
+                    all_features2.append(feature)
+                    track_labels2.append(track_id2)  # Assign track ID as label
+            
+            if len(all_features2) == 0:
+                continue
+            
+            all_features2 = np.array(all_features2)
+            
+            # Train KNN classifier
+            knn = KNeighborsClassifier(n_neighbors=k, metric="cosine")
+            knn.fit(all_features2, track_labels2)
+            
+            # Match tracks
+            for track_id1, feature_list1 in tqdm(track_features1.items(), desc=f"Matching camera {cam_id1} to {cam_id2}"):
                 global_track_id1 = f"{cam_id1}_{track_id1}"
                 
-                # Skip if already matched
                 if global_track_id1 in matched_tracks:
                     continue
                 
                 best_match = None
-                best_similarity = similarity_threshold
+                best_votes = 0
                 
-                # For each track ID in second camera
-                for track_id2, tracks2_same_id in tracks2_by_id.items():
-                    global_track_id2 = f"{cam_id2}_{track_id2}"
+                # Predict using KNN
+                for feature in feature_list1:
+                    neighbor_ids = knn.predict([feature])  # Get predicted track ID
+                    neighbor_id = neighbor_ids[0]
                     
-                    # Skip if already matched
-                    if global_track_id2 in matched_tracks.values():
-                        continue
+                    # Count votes
+                    votes = np.sum(knn.predict_proba([feature]) > similarity_threshold)
                     
-                    # Compare a representative feature from each track
-                    # Using the middle frame's features for better representation
-                    track1 = tracks1_same_id[len(tracks1_same_id)//2]
-                    track2 = tracks2_same_id[len(tracks2_same_id)//2]
-                    
-                    features1 = np.array(track1["features"])
-                    features2 = np.array(track2["features"])
-                    
-                    # Skip if arrays have different shapes
-                    if features1.shape != features2.shape:
-                        continue
-                    
-                    # Check time constraint
-                    if abs(track1["frame"] - track2["frame"]) > time_constraint:
-                        continue
-                        
-                    try:
-                        similarity = 1 - cosine(features1, features2)
-                        
-                        # Update best match if better similarity found
-                        if similarity > best_similarity:
-                            best_similarity = similarity
-                            best_match = global_track_id2
-                    except Exception as e:
-                        print(f"Error calculating similarity: {e}")
-                        continue
+                    if votes > best_votes:
+                        best_votes = votes
+                        best_match = f"{cam_id2}_{neighbor_id}"
                 
-                # If a good match was found, record it
+                # If match found, record it
                 if best_match:
                     matched_tracks[global_track_id1] = best_match
             
             print(f"  Found {len(matched_tracks)} matches so far")
-    
-    elapsed_time = time.time() - start_time
-    print(f"Cross-camera matching completed in {elapsed_time:.2f} seconds")
-    print(f"Total matches found: {len(matched_tracks)}")
+
+    print(f"Cross-camera matching completed. Total matches: {len(matched_tracks)}")
     
     return matched_tracks
 
@@ -140,12 +125,12 @@ for case in cases:
 if len(all_features) < 2:
     print("Not enough feature data loaded to perform matching")
 else:
-    # Perform cross-camera matching with more efficient algorithm
-    matched_tracks = match_across_cameras(all_features, time_constraint=100, similarity_threshold=0.7)
+    # Perform multi-camera tracking with KNN
+    matched_tracks = match_across_cameras_knn(all_features, time_constraint=100, similarity_threshold=0.7, k=3)
 
     # Save the results
-    output_path = Path(f"output/{sequence}_multicamera_tracks.json")
+    output_path = Path(f"output/{sequence}_multicamera_tracks_knn.json")
     with open(output_path, "w") as f:
         json.dump(matched_tracks, f, indent=4)
 
-    print(f"Multi-camera tracking completed. Results saved to {output_path}")
+    print(f"Multi-camera tracking with KNN completed. Results saved to {output_path}")
