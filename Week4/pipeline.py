@@ -1,205 +1,204 @@
+import cv2
+import numpy as np
+from Week4.yolo.yolo_interactions import detect_and_track_with_yolo as dt_yolo
+from pathlib import Path
 # ----------------------------
 # Step 1: Camera Calibration & Initialization
 # ----------------------------
 def calibrate_cameras(camera_feeds):
     """
-    Calibrates cameras, computes homography matrices, and defines entry regions.
+    Calibrate each camera by computing its homography matrix and defining entry regions.
     Returns a dictionary of camera objects with their feeds and calibration data.
     """
     calibrated_cameras = {}
     for cam in camera_feeds:
-        homography_matrix = calibrate(cam)  # Assume calibrate() returns a homography matrix.
+        homography_matrix = calibrate(cam)  # calibrate() returns the homography matrix.
         calibrated_cameras[cam.id] = {
             "feed": cam.feed,
             "homography": homography_matrix,
-            "entry_region": define_entry_region(cam)  # Define region where vehicles enter.
+            "entry_region": define_entry_region(cam)  # Define region where vehicles typically enter.
         }
     return calibrated_cameras
 
 # ----------------------------
-# Step 2: Vehicle Detection using YOLO
+# Step 2: Vehicle Detection & Tracking using YOLO+SORT
 # ----------------------------
-def detect_vehicles(frame):
+def detect_track_yolo(model, frame, conf_thresh=0.7):
     """
-    Uses YOLO or a similar detector to return a list of detections.
-    Each detection includes bounding box coordinates and a confidence score.
+    Uses YOLO for detection and SORT for tracking.
+    Returns:
+        - tracked_objects: an array of [x1, y1, x2, y2, track_id] for each object.
+        - annotated_frame: the frame annotated with bounding boxes and track IDs.
     """
-    detections = yolo_detector(frame)  # yolo_detector() is the detection function.
-    return detections
+    tracked_objects, annotated_frame = dt_yolo(model, frame, conf_thresh)
+    return tracked_objects, annotated_frame
 
 # ----------------------------
 # Step 3: Feature Extraction using Deep Re-ID
 # ----------------------------
 def extract_vehicle_embedding(image_crop):
     """
-    Uses a deep re-ID network to extract a robust feature embedding
-    for the cropped image of a vehicle.
+    Extracts a robust deep feature embedding from a vehicle crop using a CNN-based re-ID network.
     """
     embedding = reid_network(image_crop)  # reid_network() returns an embedding vector.
     return embedding
 
 # ----------------------------
-# Step 4: Motion Prediction using Kalman Filter
+# Helper: Compute Centroid of a Bounding Box
 # ----------------------------
-def update_motion(track, detection):
-    """
-    Updates the track state with the new detection using a Kalman filter.
-    """
-    updated_track = kalman_filter_update(track, detection)
-    return updated_track
+def compute_centroid(bbox):
+    x1, y1, x2, y2 = bbox
+    centroid_x = (x1 + x2) / 2.0
+    centroid_y = (y1 + y2) / 2.0
+    return [centroid_x, centroid_y]
 
 # ----------------------------
-# Step 5: Data Association using Hungarian Algorithm
+# Helper: Create Local Track Object
 # ----------------------------
-def associate_tracks(detections, tracks):
+def create_local_track(camera_id, track_id, bbox, centroid, embedding):
     """
-    Computes a cost matrix based on appearance (embedding similarity) and motion (predicted position).
-    Uses the Hungarian algorithm to assign detections to existing tracks.
+    Create a local track object that stores tracking info for a detected vehicle.
     """
-    cost_matrix = compute_cost_matrix(detections, tracks)
-    associations = hungarian_algorithm(cost_matrix)  # Returns list of (track, detection) pairs.
-    return associations
+    # For example, use a dictionary to store track info.
+    track = {
+        "camera_id": camera_id,
+        "local_id": track_id,
+        "bbox": bbox,
+        "centroid": centroid,
+        "embedding": embedding,
+        "position_global": None,  # To be updated via homography.
+        # Optionally, you may add a Kalman filter or motion information here.
+    }
+    return track
 
 # ----------------------------
-# Step 6: Global ID Management
+# Step 4: Global ID Management & Data Association Across Cameras
 # ----------------------------
-global_tracks = {}  # Global dictionary mapping global IDs to track information.
+global_tracks = {}  # Global dictionary mapping global IDs to aggregated track info.
 
 def update_global_tracks(global_tracks, local_tracks, time_threshold, spatial_threshold, similarity_threshold):
     """
-    Associates local tracks from one or multiple cameras with global tracks.
-    Uses spatiotemporal constraints and appearance similarity to decide matches.
+    Update and associate local tracks from all cameras with global tracks.
+    Uses spatiotemporal constraints and appearance embedding similarity.
     """
     for local_track in local_tracks:
         matched = False
         for global_id, global_track in global_tracks.items():
             if within_constraints(global_track, local_track, time_threshold, spatial_threshold):
-                similarity = compute_similarity(global_track.embedding, local_track.embedding)
+                similarity = compute_similarity(global_track["embedding"], local_track["embedding"])
                 if similarity < similarity_threshold:
-                    local_track.global_id = global_id
+                    # Update global track info (e.g., averaging embeddings, updating trajectory)
+                    local_track["global_id"] = global_id
                     global_tracks[global_id] = merge_tracks(global_track, local_track)
                     matched = True
                     break
         if not matched:
-            # Assign a new global ID if no match is found.
             new_global_id = generate_new_global_id()
-            local_track.global_id = new_global_id
+            local_track["global_id"] = new_global_id
             global_tracks[new_global_id] = local_track
     return global_tracks
 
 # ----------------------------
-# Step 7: Main Processing Loop for Multi-Camera Tracking
+# Main Processing Loop for Multi-Camera Tracking
 # ----------------------------
-def process_multicamera_feeds(calibrated_cameras, time_threshold, spatial_threshold, similarity_threshold):
+def process_multicamera_feeds(calibrated_cameras, yolo_model, time_threshold, spatial_threshold, similarity_threshold):
     """
-    Main loop that processes frames from all calibrated cameras,
-    performs detection, feature extraction, motion prediction, 
-    and global track association.
+    Processes frames from all calibrated cameras:
+      - Detects and tracks vehicles using YOLO+SORT.
+      - Extracts deep re-ID features.
+      - Maps detections to a global coordinate system.
+      - Updates global tracks via cross-camera association.
     """
     while True:
-        local_tracks_all = []  # Collect local tracks from all cameras in this iteration.
+        local_tracks_all = []  # Collect local tracks from all cameras.
         for cam_id, cam_data in calibrated_cameras.items():
-            frame = get_frame(cam_data["feed"])  # Get the current frame.
-            detections = detect_vehicles(frame)
-            local_tracks = []  # Tracks for this particular camera.
+            frame = get_frame(cam_data["feed"])  # Retrieve current frame.
+            # Use detect_and_track_with_yolo to get tracked objects and annotated frame.
+            tracked_objects, annotated_frame = detect_and_track_with_yolo(yolo_model, frame, conf_thresh=0.7)
             
-            # Process each detection:
-            for det in detections:
-                # Crop the vehicle image from the frame.
-                crop = crop_image(frame, det.bounding_box)
-                # Extract appearance embedding using deep re-ID.
+            local_tracks = []  # Local tracks for the current camera.
+            for obj in tracked_objects:
+                x1, y1, x2, y2, track_id = obj
+                bbox = [x1, y1, x2, y2]
+                centroid = compute_centroid(bbox)
+                crop = crop_image(frame, bbox)
                 embedding = extract_vehicle_embedding(crop)
-                det.embedding = embedding
                 
-                # Create or update a local track from the detection.
-                track = create_or_update_local_track(det)
+                track = create_local_track(cam_id, track_id, bbox, centroid, embedding)
+                # Map the local centroid to global coordinates using the homography matrix.
+                track["position_global"] = apply_homography(centroid, cam_data["homography"])
+                
                 local_tracks.append(track)
             
-            # Optionally: Perform local data association within the same camera.
-            associations = associate_tracks(detections, local_tracks)
-            for assoc in associations:
-                assoc.track = update_motion(assoc.track, assoc.detection)
-            
-            # Map the track positions to a global coordinate system.
-            for track in local_tracks:
-                track.global_position = apply_homography(track.position, cam_data["homography"])
-            
             local_tracks_all.extend(local_tracks)
+            # Optionally display the annotated frame per camera
+            display_annotated_frame(annotated_frame, cam_id)
         
-        # Update global tracks with local tracks from all cameras.
+        # Update the global tracks with the local tracks from all cameras.
         global_tracks_updated = update_global_tracks(
             global_tracks, local_tracks_all, time_threshold, spatial_threshold, similarity_threshold
         )
-        
-        # Display or log the tracking results.
         display_tracking_results(global_tracks_updated)
 
 # ----------------------------
-# Helper functions (to be implemented)
+# Helper Functions (placeholders)
 # ----------------------------
 def calibrate(camera):
-    # Placeholder: Perform camera calibration and return the homography matrix.
+    # Calibrate camera; return homography matrix.
     pass
 
 def define_entry_region(camera):
-    # Placeholder: Define the region where new vehicles enter the scene.
+    # Define region where vehicles typically enter.
     pass
 
-def yolo_detector(frame):
-    # Placeholder: Run YOLO detection on the frame.
+def detect_with_yolo(model, frame, conf_thresh):
+    # Run YOLO detection; return list of detections and an annotated frame.
     pass
 
-def reid_network(crop):
-    # Placeholder: Run the deep re-ID network to extract the embedding.
-    pass
-
-def kalman_filter_update(track, detection):
-    # Placeholder: Update the track using a Kalman filter.
-    pass
-
-def compute_cost_matrix(detections, tracks):
-    # Placeholder: Compute the cost matrix based on appearance and motion.
-    pass
-
-def hungarian_algorithm(cost_matrix):
-    # Placeholder: Apply the Hungarian algorithm to obtain associations.
-    pass
-
-def within_constraints(global_track, local_track, time_threshold, spatial_threshold):
-    # Placeholder: Check spatiotemporal constraints between tracks.
-    pass
-
-def compute_similarity(embedding1, embedding2):
-    # Placeholder: Compute the similarity (or distance) between two embeddings.
-    pass
-
-def merge_tracks(global_track, local_track):
-    # Placeholder: Merge information from the local track into the global track.
-    pass
-
-def generate_new_global_id():
-    # Placeholder: Generate a new unique global ID.
+def reid_network(image_crop):
+    # Extract deep re-ID features; return an embedding vector.
     pass
 
 def get_frame(feed):
-    # Placeholder: Retrieve a frame from the video feed.
+    # Retrieve a frame from the camera feed.
     pass
 
 def crop_image(frame, bbox):
-    # Placeholder: Crop the image using the bounding box.
+    # Crop the image based on bounding box.
     pass
 
-def create_or_update_local_track(detection):
-    # Placeholder: Create a new track or update an existing track with detection info.
+def apply_homography(centroid, homography_matrix):
+    # Map the centroid coordinates to the global coordinate system.
+    # For instance, use cv2.perspectiveTransform.
+    pts = np.array([[centroid]], dtype=np.float32)
+    pts_transformed = cv2.perspectiveTransform(pts, homography_matrix)
+    return pts_transformed[0][0].tolist()
+
+def within_constraints(global_track, local_track, time_threshold, spatial_threshold):
+    # Check if local and global tracks satisfy the spatiotemporal constraints.
+    # This could compare time differences and spatial distances.
     pass
 
-def apply_homography(position, homography_matrix):
-    # Placeholder: Convert local position to global coordinates using the homography matrix.
+def compute_similarity(embedding1, embedding2):
+    # Compute similarity or distance between two embeddings (e.g., Euclidean or cosine distance).
     pass
+
+def merge_tracks(global_track, local_track):
+    # Merge the track information from local into global track.
+    pass
+
+def generate_new_global_id():
+    # Generate and return a new unique global ID.
+    pass
+
+def display_annotated_frame(frame, cam_id):
+    # Display or log the annotated frame for the given camera.
+    cv2.imshow(f"Camera {cam_id}", frame)
+    cv2.waitKey(1)
 
 def display_tracking_results(global_tracks):
-    # Placeholder: Visualize or log the global tracking results.
-    pass
+    # Display or log the global tracking results.
+    print("Global Tracks:", global_tracks)
 
 # ----------------------------
 # Example Initialization and Run
@@ -207,9 +206,13 @@ def display_tracking_results(global_tracks):
 if __name__ == "__main__":
     camera_feeds = load_camera_feeds()  # Load camera feed objects.
     calibrated_cams = calibrate_cameras(camera_feeds)
-    # Define thresholds based on system tuning:
-    TIME_THRESHOLD = 5.0        # seconds
-    SPATIAL_THRESHOLD = 50.0    # pixels or meters, depending on mapping
-    SIMILARITY_THRESHOLD = 0.7  # Example threshold for embedding similarity
+    # Define thresholds based on your system’s tuning.
+    TIME_THRESHOLD = 5.0         # seconds (example)
+    SPATIAL_THRESHOLD = 50.0     # pixels or meters (depending on mapping)
+    SIMILARITY_THRESHOLD = 0.7   # example threshold for embedding similarity
     
-    process_multicamera_feeds(calibrated_cams, TIME_THRESHOLD, SPATIAL_THRESHOLD, SIMILARITY_THRESHOLD)
+    # Load your YOLO model (and SORT should be initialized globally)
+    
+    yolo_model = Path("yolo/y8_ft_default.pt")
+    
+    process_multicamera_feeds(calibrated_cams, yolo_model, TIME_THRESHOLD, SPATIAL_THRESHOLD, SIMILARITY_THRESHOLD)
