@@ -7,17 +7,17 @@ videos = []
 sequence = "s03"
 cases = ["c010", "c011", "c012", "c013", "c014", "c015"]  # Cameras
 
-# Custom start delays (in seconds, None for automatic calculation)
+# Custom start delays (in seconds)
 custom_delays = {
-    "c010": 0,#10,
-    "c011": 0,#9,
-    "c012": 0,#6,
+    "c010": 8.715,
+    "c011": 8.457,
+    "c012": 5.879,
     "c013": 0,
-    "c014": 0,#3,
-    "c015": 0,
+    "c014": 5.042,
+    "c015": 8.492,
 }
 
-# Target FPS (standardize frame rate for all videos)
+# Target FPS
 target_fps = 10
 frame_interval = 1 / target_fps  # Time between frames in seconds
 
@@ -30,51 +30,40 @@ for case in cases:
 captures = [cv2.VideoCapture(video) for video in videos]
 print(len(captures))
 # Retrieve frame counts and frame rates
-frame_counts = [int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) for cap in captures]
-fps_list = [int(cap.get(cv2.CAP_PROP_FPS)) for cap in captures]
+frame_counts = [int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) if cap.isOpened() else 0 for cap in captures]
+fps_list = [int(cap.get(cv2.CAP_PROP_FPS)) if cap.isOpened() else target_fps for cap in captures]
 
-# Calculate automatic delays (to sync all videos to finish at the same time)
+# Calculate automatic delays (sync all videos to finish at the same time)
 max_duration = max(frame_counts[i] / fps_list[i] for i in range(len(captures)))
-delays = []
-for i in range(len(captures)):
-    custom_delay = custom_delays[cases[i]]
-    if custom_delay is not None:
-        delays.append(custom_delay)
-    else:
-        video_duration = frame_counts[i] / fps_list[i]
-        delays.append(max_duration - video_duration)
+delays = [
+    custom_delays[cases[i]] if custom_delays[cases[i]] is not None else (max_duration - (frame_counts[i] / fps_list[i]))
+    for i in range(len(captures))
+]
 
 # Resize parameters
 video_width, video_height = 320, 240
 
-# Initialize frame counters and timers
+# Initialize frame counters
 frame_indices = [0] * len(captures)
-last_frame_time = time.time()
 
 # Start time for elapsed time calculation
 start_time = time.time()
 
 while True:
-    # Limit the loop to maintain the target FPS
     current_time = time.time()
-    if current_time - last_frame_time < frame_interval:
-        continue
-    last_frame_time = current_time
+    elapsed_time = current_time - start_time
 
     frames = []
     for i, cap in enumerate(captures):
-        # Check if the video is in its delay period
-        if frame_indices[i] < delays[i] * target_fps:
-            # Add black frame during delay
+        if not cap.isOpened():
+            frame = np.zeros((video_height, video_width, 3), dtype=np.uint8)
+        elif elapsed_time < delays[i]:  # Still in delay period
             frame = np.zeros((video_height, video_width, 3), dtype=np.uint8)
         else:
-            # Play video normally
             ret, frame = cap.read()
-            if not ret:
-                # Add black frame if video ends
+            if not ret:  # Video ended
                 frame = np.zeros((video_height, video_width, 3), dtype=np.uint8)
             else:
-                # Resize frame for consistency
                 frame = cv2.resize(frame, (video_width, video_height))
 
         # Draw frame number in red
@@ -91,28 +80,25 @@ while True:
         cv2.putText(frame, case_text, (x_pos, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
 
         frames.append(frame)
-        
-        # Increment frame counter
-        frame_indices[i] += 1
+
+        # Increment frame counter only if delay is over
+        if elapsed_time >= delays[i]:
+            frame_indices[i] += 1
 
     # Create mosaic (2 rows x 3 columns)
-    row1 = np.hstack(frames[:3])  # First row
-    row2 = np.hstack(frames[3:])  # Second row
-    mosaic = np.vstack([row1, row2])  # Combine rows
+    row1 = np.hstack(frames[:3])
+    row2 = np.hstack(frames[3:])
+    mosaic = np.vstack([row1, row2])
 
-    # Calculate elapsed time
-    elapsed_time = current_time - start_time
-    time_text = f"Time: {elapsed_time:.2f} s"
-
-    # Overlay time on the mosaic
-    cv2.putText(mosaic, time_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-
-    # Display synchronized mosaic
+    # Display time elapsed
+    cv2.putText(mosaic, f"Time: {elapsed_time:.2f} s", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    
     cv2.imshow("Synchronized Mosaic with Time Overlay", mosaic)
 
-    # Exit on 'q'
+    # Wait to match FPS
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
+    time.sleep(frame_interval)
 
 # Release resources
 for cap in captures:

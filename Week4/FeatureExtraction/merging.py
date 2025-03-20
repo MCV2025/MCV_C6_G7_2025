@@ -4,6 +4,7 @@ from pathlib import Path
 from sklearn.neighbors import KNeighborsClassifier
 from tqdm import tqdm
 from sklearn.preprocessing import StandardScaler
+from scipy.optimize import linear_sum_assignment
 
 # Specify sequence and cases
 sequence = "s03"
@@ -113,6 +114,64 @@ def match_across_cameras_knn(features_data, time_constraint=50, similarity_thres
     
     return matched_tracks
 
+import numpy as np
+
+def match_objects_across_cameras(tracking_data, threshold=0.7):
+    """
+    Matches objects across different cameras based on feature similarity.
+
+    Parameters:
+    - tracking_data: dict {camera_id: list of dicts with 'frame', 'track_id', 'camera_id', 'features'}
+    - threshold: similarity threshold (higher = more strict, lower = more flexible)
+
+    Returns:
+    - matches: List of sets, each containing (camera_id, track_id) tuples that represent the same object.
+    """
+    
+    # Step 1: Flatten the tracking data
+    all_objects = []  # List of (camera_id, track_id, features)
+    
+    for cam_id, objects in tracking_data.items():
+        for obj in objects:
+            all_objects.append((obj["camera_id"], obj["track_id"], np.array(obj["features"])))
+    
+    num_objects = len(all_objects)
+    if num_objects == 0:
+        return []  # No objects to match
+    
+    # Step 2: Compute similarity matrix
+    similarity_matrix = np.zeros((num_objects, num_objects))
+    
+    for i in range(num_objects):
+        for j in range(i + 1, num_objects):  # Compare each pair once
+            f1 = all_objects[i][2]
+            f2 = all_objects[j][2]
+            
+            # Compute cosine similarity
+            similarity = np.dot(f1, f2) / (np.linalg.norm(f1) * np.linalg.norm(f2))
+            
+            similarity_matrix[i, j] = similarity
+            similarity_matrix[j, i] = similarity  # Symmetric matrix
+    
+    # Step 3: Group objects based on threshold
+    matches = []  # List of sets containing matched objects
+    visited = set()
+    
+    for i in range(num_objects):
+        if i in visited:
+            continue  # Skip already matched objects
+        
+        matched_set = {(all_objects[i][0], all_objects[i][1])}  # Initialize new group
+        
+        for j in range(num_objects):
+            if i != j and similarity_matrix[i, j] > threshold:
+                matched_set.add((all_objects[j][0], all_objects[j][1]))
+                visited.add(j)
+        
+        matches.append(matched_set)
+    
+    return matches
+
 # Load feature data
 all_features = {}
 for case in cases:
@@ -128,7 +187,13 @@ for case in cases:
             all_features[camera_id] = features
     else:
         print(f"Warning: Feature file not found: {feature_path}")
+#print(f"Keys in all_features: {list(all_features.keys())}")  # Print out camera IDs (keys)
+#print(f"Number of cameras: {len(all_features)}")  # Total number of cameras
 
+matches = match_objects_across_cameras(all_features)
+print(matches)  # Print out camera IDs (keys)
+
+'''
 if len(all_features) < 2:
     print("Not enough feature data loaded to perform matching")
 else:
@@ -141,3 +206,4 @@ else:
         json.dump(matched_tracks, f, indent=4)
 
     print(f"Multi-camera tracking with KNN completed. Results saved to {output_path}")
+'''
