@@ -9,11 +9,11 @@ cases = ["c010", "c011", "c012", "c013", "c014", "c015"]  # Cameras
 
 # Custom start delays (in seconds, None for automatic calculation)
 custom_delays = {
-    "c010": 10,
-    "c011": 9,
-    "c012": 6,
+    "c010": 0,#10,
+    "c011": 0,#9,
+    "c012": 0,#6,
     "c013": 0,
-    "c014": 3,
+    "c014": 0,#3,
     "c015": 0,
 }
 
@@ -23,12 +23,12 @@ frame_interval = 1 / target_fps  # Time between frames in seconds
 
 # Gather video paths
 for case in cases:
-    video_path = f"videos/{sequence}_{case}.avi"
+    video_path = f"../aic19-track1-mtmc-train/train/S03/videos/{sequence}_{case}.avi"
     videos.append(video_path)
 
 # Open video captures
 captures = [cv2.VideoCapture(video) for video in videos]
-
+print(len(captures))
 # Retrieve frame counts and frame rates
 frame_counts = [int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) for cap in captures]
 fps_list = [int(cap.get(cv2.CAP_PROP_FPS)) for cap in captures]
@@ -80,6 +80,15 @@ while True:
         # Draw frame number in red
         frame_number_text = f"Frame: {frame_indices[i]}"
         cv2.putText(frame, frame_number_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+
+        case_text = cases[i]  # Get the case name (e.g., "c010")
+        text_size, _ = cv2.getTextSize(case_text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
+        text_width = text_size[0]
+
+        x_pos = video_width - text_width - 10  # Position it 10px from the right
+        y_pos = 30  # Position at 30px from the top
+
+        cv2.putText(frame, case_text, (x_pos, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
 
         frames.append(frame)
         
