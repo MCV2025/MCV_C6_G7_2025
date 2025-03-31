@@ -136,6 +136,8 @@ ENV/
 env.bak/
 venv.bak/
 c6venv/
+yolov8-env/
+.soccerenv/
 
 # Spyder project settings
 .spyderproject
@@ -172,5 +174,16 @@ cython_debug/
 .pypirc
 
 Week1/
+Week2/
+Week3/
+Week4/
 AICity_data/
 output.avi
+wandb/
+best_models/
+TrackEval-master/
+dataset/
+yolo_ft_output/
+videos/
+aic19-track1-mtmc-train/
+ext/

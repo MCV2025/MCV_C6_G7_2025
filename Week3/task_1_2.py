@@ -1,6 +1,6 @@
 import cv2
 from ultralytics import YOLO
-from yolo_interactions import detect_and_track_with_yolo
+from Week4.yolo.yolo_interactions import detect_and_track_with_yolo
 from utils import extract_features, track_features_dense, compute_optical_flow
 import numpy as np
 from pathlib import Path
@@ -111,6 +111,37 @@ def save_results(results):
         for key, value in results.items():
             f.write(f"{key}: {value}\n")
 
+def display_optical_flow(frame, flow, step=16):
+    """
+    Visualizes the optical flow on a frame by sampling vectors on a grid.
+    
+    Parameters:
+        frame (np.array): The original color frame (BGR).
+        flow (np.array): Optical flow field (H x W x 2) computed on grayscale images.
+        step (int): Sampling step for drawing flow vectors (default: 16).
+    """
+    # Create a copy of the frame for visualization
+    vis = frame.copy()
+    h, w = flow.shape[:2]
+    
+    # Create a grid of points at the given step size
+    y, x = np.mgrid[step//2:h:step, step//2:w:step].astype(np.int32)
+    
+    # Iterate over the grid points and draw the flow vectors
+    for (x0, y0) in zip(x.flatten(), y.flatten()):
+        # Get the flow vector at (y0, x0)
+        dx, dy = flow[y0, x0]
+        # Compute the endpoint of the flow vector
+        x1 = int(x0 + dx)
+        y1 = int(y0 + dy)
+        # Draw a line and a circle to indicate direction and magnitude
+        cv2.line(vis, (x0, y0), (x1, y1), (0, 255, 0), 1, lineType=cv2.LINE_AA)
+        cv2.circle(vis, (x0, y0), 1, (0, 0, 255), -1)
+    
+    # Show the visualization
+    cv2.imshow("Optical Flow", vis)
+    cv2.waitKey(1)
+
 
 # Main pipeline
 while cap.isOpened():
@@ -128,7 +159,8 @@ while cap.isOpened():
 
         # Compute optical flow between prev_frame and current frame
         flow_vectors = compute_optical_flow(gray_prev_frame, gray_frame)
-
+        display_optical_flow(frame, flow_vectors)
+        
         # Step 3: For each detection, refine tracking using optical flow
         for detection in detections:
             # bbox, class_id, confidence = detection

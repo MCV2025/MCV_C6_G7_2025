@@ -1,10 +1,10 @@
-import SoccerNet
-from SoccerNet.Downloader import SoccerNetDownloader
-mySoccerNetDownloader=SoccerNetDownloader(LocalDirectory="/home/xavier/Projects/MasterCV/C6_Lab/Week5/dataset"
-)
+# import SoccerNet
+# from SoccerNet.Downloader import SoccerNetDownloader
+# mySoccerNetDownloader=SoccerNetDownloader(LocalDirectory="/home/xavier/Projects/MasterCV/C6_Lab/Week5/dataset"
+# )
 
 # # Broadcast Videos
-# mySoccerNetDownloader.password = "s0cc3rn3t"
+# mySoccerNetDownloader.password = ""
 # mySoccerNetDownloader.downloadGames(files=["1_720p.mkv", "2_720p.mkv"], split=["train","valid","test","challenge"])
 # mySoccerNetDownloader.downloadGames(files=["1_224p.mkv", "2_224p.mkv"], split=["train","valid","test","challenge"])
 
@@ -39,5 +39,11 @@ mySoccerNetDownloader=SoccerNetDownloader(LocalDirectory="/home/xavier/Projects/
 # # Dense Video Captioning labels
 # mySoccerNetDownloader.downloadDataTask(task="caption-2023", split=["train","valid", "test","challenge"])
 
-# Ball action data and labels
-mySoccerNetDownloader.downloadDataTask(task="spotting-ball-2023", split=["train", "valid", "test", "challenge"], password="s0cc3rn3t") 
+# # Ball action data and labels
+# mySoccerNetDownloader.downloadDataTask(task="spotting-ball-2023", split=["train", "valid", "test", "challenge"], password="") 
+
+
+from huggingface_hub import snapshot_download
+snapshot_download(repo_id="SoccerNet/SN-BAS-2025",
+                  repo_type="dataset", revision="main",
+                  local_dir="SoccerNet/SN-BAS-2025")
