@@ -158,7 +158,7 @@ def main(args):
             new_args = update_args(argparse.Namespace(model=args.model, seed=args.seed, optuna=False), config_trial)
             # Override hyperparameters using Optuna suggestions.
             new_args.batch_size = trial.suggest_categorical("batch_size", [2, 4, 8, 16])
-            new_args.stride = trial.suggest_categorical("stride", [2, 4, 6])
+            new_args.stride = trial.suggest_categorical("stride", [2])
             new_args.learning_rate = trial.suggest_categorical("learning_rate", [.0008, 5e-4, 1e-4, 1e-3, 1e-2]) 
             new_args.num_epochs = trial.suggest_categorical("num_epochs", [15, 20, 25, 30, 35])
             new_args.warm_up_epochs = trial.suggest_categorical("warm_up_epochs", [1, 3, 5])
