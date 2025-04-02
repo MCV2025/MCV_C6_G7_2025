@@ -67,7 +67,7 @@ def run_training(args, trial):
     np.random.seed(args.seed)
     random.seed(args.seed)
 
-    execution_name = f'xavi{str(trial.number)}'
+    execution_name = f'xavi_final{str(trial.number)}'
 
     wandb.init(
         project='Week5_ft_final',
@@ -159,7 +159,7 @@ def run_training(args, trial):
     result_text = table_str + "\n\n" + avg_str
 
     # Write the result to a text file.
-    with open(f"results/results_{args.batch_size}_{args.learning_rate}_{args.num_epochs}_{args.warm_up_epochs}_{args.pooling_layer}.txt", "w") as f:
+    with open(f"results/results{trial.number}_{args.batch_size}_{args.learning_rate}_{args.num_epochs}_{args.warm_up_epochs}_{args.pooling_layer}.txt", "w") as f:
         f.write(result_text)
 
     wandb.finish()
@@ -167,7 +167,7 @@ def run_training(args, trial):
     model_summary = summary(model, input_size=(args.batch_size, 50, 3, 224, 398), col_names=("output_size", "num_params", "mult_adds"))
     summary_str = str(model_summary)
 
-    with open(f"summary/model_summary{args.batch_size}_{args.learning_rate}_{args.num_epochs}_{args.warm_up_epochs}_{args.pooling_layer}.txt", "w") as f:
+    with open(f"summary/model_summary{trial.number}_{args.batch_size}_{args.learning_rate}_{args.num_epochs}_{args.warm_up_epochs}_{args.pooling_layer}.txt", "w") as f:
         f.write(summary_str)
 
     return best_metric
@@ -184,12 +184,14 @@ def main(args):
             config_trial = load_json(config_path)
             new_args = update_args(argparse.Namespace(model=args.model, seed=args.seed, optuna=False), config_trial)
             # Override hyperparameters using Optuna suggestions.
-            new_args.batch_size = trial.suggest_categorical("batch_size", [2, 4, 8, 16])
+            new_args.batch_size = trial.suggest_categorical("batch_size", [4])
             new_args.stride = trial.suggest_categorical("stride", [2])
-            new_args.learning_rate = trial.suggest_categorical("learning_rate", [.0008, 5e-4, 1e-4, 1e-3, 1e-2]) 
+            # new_args.learning_rate = trial.suggest_categorical("learning_rate", [.0008, 5e-4, 1e-4, 1e-3, 1e-2]) 
+            new_args.learning_rate = trial.suggest_categorical("learning_rate", [.0008]) 
             new_args.num_epochs = trial.suggest_categorical("num_epochs", [5, 10, 15])
-            new_args.warm_up_epochs = trial.suggest_categorical("warm_up_epochs", [1, 3, 5])
-            new_args.pooling_layer = trial.suggest_categorical("pooling_layer", ["average", "max"])
+            # new_args.warm_up_epochs = trial.suggest_categorical("warm_up_epochs", [1, 3, 5])
+            new_args.warm_up_epochs = trial.suggest_categorical("warm_up_epochs", [3])
+            new_args.pooling_layer = trial.suggest_categorical("pooling_layer", ["average"])
 
     
             # Run training for this trial.
@@ -197,7 +199,7 @@ def main(args):
             return metric
 
         study = optuna.create_study(direction="minimize")
-        study.optimize(objective, n_trials=15)
+        study.optimize(objective, n_trials=20)
         print("Best trial:")
         trial = study.best_trial
         print(f"  Value: {trial.value}")
