@@ -15,13 +15,15 @@ import torch.nn.functional as F
 #Local imports
 from model.modules import BaseRGBModel, FCLayers, step
 
-class Model(BaseRGBModel):
+class Model(BaseRGBModel, nn.Module):
 
     class Impl(nn.Module):
 
         def __init__(self, args = None):
             super().__init__()
             self._feature_arch = args.feature_arch
+            self.args = args
+            self.model_params = None
 
             if self._feature_arch.startswith(('rny002', 'rny004', 'rny008')):
                 features = timm.create_model({
@@ -71,8 +73,12 @@ class Model(BaseRGBModel):
                 x.view(-1, channels, height, width)
             ).reshape(batch_size, clip_len, self._d) #B, T, D
 
-            #Max pooling
-            im_feat = torch.max(im_feat, dim=1)[0] #B, D
+            if self.args.pooling_layer == "max":
+                #Max pooling
+                im_feat = torch.max(im_feat, dim=1)[0] #B, D
+            
+            else:
+                im_feat = torch.mean(im_feat, dim=1)
 
             #MLP
             im_feat = self._fc(im_feat) #B, num_classes
@@ -93,10 +99,19 @@ class Model(BaseRGBModel):
             return x
 
         def print_stats(self):
-            print('Model params:',
-                sum(p.numel() for p in self.parameters()))
+            self.model_params = sum(p.numel() for p in self.parameters())
+            print('Model params:', self.model_params)
+        
+        def get_model_parameters(self):
+            return self.model_params
 
     def __init__(self, args=None):
+
+        # First, initialize nn.Module.
+        nn.Module.__init__(self)
+        # Then initialize the other parent class.
+        BaseRGBModel.__init__(self)
+        
         self.device = "cpu"
         if torch.cuda.is_available() and ("device" in args) and (args.device == "cuda"):
             self.device = "cuda"
@@ -107,6 +122,13 @@ class Model(BaseRGBModel):
 
         self._model.to(self.device)
         self._num_classes = args.num_classes
+
+    # Delegate parameters() to the inner model.
+    def parameters(self):
+        return self._model.parameters()
+
+    def get_model_parameters(self):
+        return self._model.get_model_parameters()
 
     def epoch(self, loader, optimizer=None, scaler=None, lr_scheduler=None):
 
@@ -157,3 +179,11 @@ class Model(BaseRGBModel):
             pred = torch.sigmoid(pred)
             
             return pred.cpu().numpy()
+        
+    def forward(self, x):
+    # Delegate forward to the inner model.
+        return self._model(x)
+    
+        # If needed, also delegate children()
+    def children(self):
+        return self._model.children()

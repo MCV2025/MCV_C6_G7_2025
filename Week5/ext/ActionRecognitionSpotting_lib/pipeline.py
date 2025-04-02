@@ -9,6 +9,7 @@ import sys
 import torch
 import random
 import numpy as np
+from torchinfo import summary
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import ChainedScheduler, LinearLR, CosineAnnealingLR
 import wandb
@@ -66,15 +67,15 @@ def run_training(args, trial):
     np.random.seed(args.seed)
     random.seed(args.seed)
 
-    execution_name = f'xavi_ft{str(trial.number)}'
+    execution_name = f'xavi{str(trial.number)}'
 
     wandb.init(
         project='Week5_ft_final',
         entity='mcv-c6g7',
         name=execution_name,
         config=args, reinit=True)
-    wandb.config.update({"store_dir": args.store_dir}, allow_val_change=True)
-    wandb.config.update({"save_dir": args.save_dir}, allow_val_change=True)
+    # wandb.config.update({"store_dir": args.store_dir}, allow_val_change=True)
+    # wandb.config.update({"save_dir": args.save_dir}, allow_val_change=True)
 
     ckpt_dir = os.path.join(args.save_dir, 'checkpoints')
     os.makedirs(ckpt_dir, exist_ok=True)
@@ -132,17 +133,43 @@ def run_training(args, trial):
     else:
         print("Only test mode; skipping training.")
 
+    model_parameters = model.get_model_parameters()
+    wandb.log({"model_params": model_parameters})
+
     print('START INFERENCE')
     model.load(torch.load(os.path.join(ckpt_dir, 'checkpoint_best.pt')))
     ap_score = evaluate(model, test_data)
     table = []
     for i, class_name in enumerate(classes.keys()):
         table.append([class_name, f"{ap_score[i]*100:.2f}"])
-    print(tabulate(table, headers=["Class", "Average Precision"], tablefmt="grid"))
-    print(tabulate([["Average", f"{np.mean(ap_score)*100:.2f}"]],
-                   headers=["", "Average Precision"], tablefmt="grid"))
+    # print(tabulate(table, headers=["Class", "Average Precision"], tablefmt="grid"))
+    # print(tabulate([["Average", f"{np.mean(ap_score)*100:.2f}"]],
+    #                headers=["", "Average Precision"], tablefmt="grid"))
+
+    # Generate the tabulated strings.
+    table_str = tabulate(table, headers=["Class", "Average Precision"], tablefmt="grid")
+    avg_str = tabulate([["Average", f"{np.mean(ap_score)*100:.2f}"]],
+                    headers=["", "Average Precision"], tablefmt="grid")
+
+    # Print the results to the console.
+    print(table_str)
+    print(avg_str)
+
+    # Combine the strings into one text.
+    result_text = table_str + "\n\n" + avg_str
+
+    # Write the result to a text file.
+    with open(f"results/results_{args.batch_size}_{args.learning_rate}_{args.num_epochs}_{args.warm_up_epochs}_{args.pooling_layer}.txt", "w") as f:
+        f.write(result_text)
+
     wandb.finish()
     print('FINISHED TRAINING AND INFERENCE')
+    model_summary = summary(model, input_size=(args.batch_size, 50, 3, 224, 398), col_names=("output_size", "num_params", "mult_adds"))
+    summary_str = str(model_summary)
+
+    with open(f"model_summary{args.batch_size}_{args.learning_rate}_{args.num_epochs}_{args.warm_up_epochs}_{args.pooling_layer}.txt", "w") as f:
+        f.write(summary_str)
+
     return best_metric
 
 def main(args):
@@ -160,8 +187,9 @@ def main(args):
             new_args.batch_size = trial.suggest_categorical("batch_size", [2, 4, 8, 16])
             new_args.stride = trial.suggest_categorical("stride", [2])
             new_args.learning_rate = trial.suggest_categorical("learning_rate", [.0008, 5e-4, 1e-4, 1e-3, 1e-2]) 
-            new_args.num_epochs = trial.suggest_categorical("num_epochs", [15, 20, 25, 30, 35])
+            new_args.num_epochs = trial.suggest_categorical("num_epochs", [5, 10, 15])
             new_args.warm_up_epochs = trial.suggest_categorical("warm_up_epochs", [1, 3, 5])
+            new_args.pooling_layer = trial.suggest_categorical("pooling_layer", ["average", "max"])
 
     
             # Run training for this trial.
@@ -169,7 +197,7 @@ def main(args):
             return metric
 
         study = optuna.create_study(direction="minimize")
-        study.optimize(objective, n_trials=50)
+        study.optimize(objective, n_trials=15)
         print("Best trial:")
         trial = study.best_trial
         print(f"  Value: {trial.value}")
