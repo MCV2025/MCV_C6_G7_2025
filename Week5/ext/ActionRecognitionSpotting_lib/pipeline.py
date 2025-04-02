@@ -167,7 +167,7 @@ def run_training(args, trial):
     model_summary = summary(model, input_size=(args.batch_size, 50, 3, 224, 398), col_names=("output_size", "num_params", "mult_adds"))
     summary_str = str(model_summary)
 
-    with open(f"model_summary{args.batch_size}_{args.learning_rate}_{args.num_epochs}_{args.warm_up_epochs}_{args.pooling_layer}.txt", "w") as f:
+    with open(f"summary/model_summary{args.batch_size}_{args.learning_rate}_{args.num_epochs}_{args.warm_up_epochs}_{args.pooling_layer}.txt", "w") as f:
         f.write(summary_str)
 
     return best_metric
