@@ -20,7 +20,7 @@ from tabulate import tabulate
 from util.io import load_json, store_json
 from util.eval_spotting import evaluate
 from dataset.datasets import get_datasets
-from model.TT_model_spotting import Model
+from model.model_spotting import Model
 
 
 def get_args():
@@ -51,7 +51,6 @@ def update_args(args, config):
     args.only_test = config['only_test']
     args.device = config['device']
     args.num_workers = config['num_workers']
-    args.patience = config['patience']
 
     return args
 
@@ -65,8 +64,6 @@ def get_lr_scheduler(args, optimizer, num_steps_per_epoch):
         CosineAnnealingLR(optimizer,
             num_steps_per_epoch * cosine_epochs)])
 
-def worker_init_fn(id):
-        random.seed(id * 100)
 
 def main(args):
     # Set seed
@@ -92,6 +89,8 @@ def main(args):
     else:
         print('Datasets have been loaded from previous versions correctly!')
 
+    def worker_init_fn(id):
+        random.seed(id + epoch * 100)
 
     # Dataloaders
     train_loader = DataLoader(
@@ -162,8 +161,7 @@ def main(args):
 
                 if better:
                     torch.save( model.state_dict(), os.path.join(ckpt_dir, 'checkpoint_best.pt') )
-    
-    model_parameters = model.get_model_parameters()
+
     print('START INFERENCE')
     model.load(torch.load(os.path.join(ckpt_dir, 'checkpoint_best.pt')))
 
@@ -182,10 +180,9 @@ def main(args):
     # Print the results to the console.
     print(table_str)
     print(avg_str)
-
-    # Combine the strings into one text.
+        # Combine the strings into one text.
     result_text = table_str + "\n\n" + avg_str
-
+    
     # Write the result to a text file.
     with open(f"results/results_transformer{args.batch_size}_{args.learning_rate}_{args.num_epochs}_{args.warm_up_epochs}.txt", "w") as f:
         f.write(result_text)
