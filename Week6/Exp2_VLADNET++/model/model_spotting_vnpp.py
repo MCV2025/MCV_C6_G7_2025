@@ -10,7 +10,8 @@ import torchvision.transforms as T
 from contextlib import nullcontext
 from tqdm import tqdm
 import torch.nn.functional as F
-
+from model.netvlad_pp import NetVLADPlusPlus
+import numpy as np
 
 #Local imports
 from model.modules import BaseRGBModel, FCLayers, step
@@ -39,11 +40,24 @@ class Model(BaseRGBModel, nn.Module):
 
             else:
                 raise NotImplementedError(args._feature_arch)
+            
+            # NetVLAD++ aggregator
+            self._netvladpp = NetVLADPlusPlus(
+                feature_dim=self._d,
+                num_clusters=args.num_vlad_clusters  
+            )
+
+            # MLP for classification
+            # If you want to classify after NetVLAD++: the input dim to FC is (num_clusters * feat_dim)
+            aggregator_dim = args.num_vlad_clusters * self._d
+            self._fc_vlad = FCLayers(aggregator_dim, args.num_classes + 1)
 
             self._features = features
 
             # MLP for classification
-            self._fc = FCLayers(self._d, args.num_classes+1) # +1 for background class (we now perform per-frame classification with softmax, therefore we have the extra background class)
+            # +1 for background class (we now perform per-frame classification with softmax, 
+            # therefore we have the extra background class)
+            # self._fc = FCLayers(self._d, args.num_classes+1) 
 
             #Augmentations and crop
             self.augmentation = T.Compose([
@@ -68,15 +82,18 @@ class Model(BaseRGBModel, nn.Module):
                 x = self.augment(x) #augmentation per-batch
 
             x = self.standarize(x) #standarization imagenet stats
-                        
+
+            # 1) Framewise feature extraction         
             im_feat = self._features(
                 x.view(-1, channels, height, width)
             ).reshape(batch_size, clip_len, self._d) #B, T, D
 
-            #MLP
-            im_feat = self._fc(im_feat) #B, T, num_classes+1
+            # 2) NetVLAD++ aggregation
+            aggregated_feat = self._netvladpp(im_feat)  # shape => (B, num_clusters * D)
 
-            return im_feat 
+            # 3) Classification
+            logits = self._fc_vlad(aggregated_feat)  # (B, num_classes+1)
+            return logits
         
         def normalize(self, x):
             return x / 255.
@@ -117,6 +134,13 @@ class Model(BaseRGBModel, nn.Module):
         self._model.to(self.device)
         self._num_classes = args.num_classes
 
+    # Delegate parameters() to the inner model.
+    def parameters(self):
+        return self._model.parameters()
+
+    def get_model_parameters(self):
+        return self._model.get_model_parameters()
+
     def epoch(self, loader, optimizer=None, scaler=None, lr_scheduler=None):
 
         if optimizer is None:
@@ -133,13 +157,19 @@ class Model(BaseRGBModel, nn.Module):
         with torch.no_grad() if optimizer is None else nullcontext():
             for batch_idx, batch in enumerate(tqdm(loader)):
                 frame = batch['frame'].to(self.device).float()
-                label = batch['label']
-                label = label.to(self.device).long()
+                label = batch['label'].to(self.device).long()
+                if label.dim() > 1:
+                    label = label[:, 0]
 
                 with torch.cuda.amp.autocast():
                     pred = self._model(frame)
-                    pred = pred.view(-1, self._num_classes + 1) # B*T, num_classes
-                    label = label.view(-1) # B*T
+                    # pred = pred.view(-1, self._num_classes + 1) # B*T, num_classes
+                    # label = label.view(-1) # B*T
+                    # label = label.squeeze(1)
+
+                    # print("pred.shape:", pred.shape)   # Should see (B, num_classes+1)
+                    # print("label.shape:", label.shape) # Should see (B,)
+
                     loss = F.cross_entropy(
                             pred, label, reduction='mean', weight = weights)
 
@@ -168,8 +198,12 @@ class Model(BaseRGBModel, nn.Module):
 
             # apply sigmoid
             pred = torch.softmax(pred, dim=-1)
+            pred = pred.cpu().numpy()
             
-            return pred.cpu().numpy()
+            # Ensure the output is 2D.
+            if pred.ndim == 1:
+                pred = pred[np.newaxis, :]
+            return pred
         
     def forward(self, x):
     # Delegate forward to the inner model.

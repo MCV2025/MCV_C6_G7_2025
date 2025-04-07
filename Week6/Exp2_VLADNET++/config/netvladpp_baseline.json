@@ -10,12 +10,13 @@
     "dataset": "soccernetball",
     "epoch_num_frames": 500000,
     "feature_arch": "rny002",
-    "learning_rate": 0.0008,
+    "learning_rate": 10e-3,
     "num_classes": 12,
-    "num_epochs": 20,
+    "num_epochs": 1,
     "warm_up_epochs": 3,
-    "only_test": false,
+    "only_test": true,
     "device": "cuda",
     "num_workers": 4,
-    "patience": 5
+    "patience": 10,
+    "vlad_clusters": 32
 }
