@@ -9,6 +9,7 @@ import torch
 import os
 import numpy as np
 import random
+from torchinfo import summary
 from torch.optim.lr_scheduler import (
     ChainedScheduler, LinearLR, CosineAnnealingLR)
 import sys
@@ -150,7 +151,8 @@ def main(args):
 
                 if better:
                     torch.save( model.state_dict(), os.path.join(ckpt_dir, 'checkpoint_best.pt') )
-
+    
+    model_parameters = model.get_model_parameters()
     print('START INFERENCE')
     model.load(torch.load(os.path.join(ckpt_dir, 'checkpoint_best.pt')))
 
@@ -162,16 +164,27 @@ def main(args):
     for i, class_name in enumerate(classes.keys()):
         table.append([class_name, f"{ap_score[i]*100:.2f}"])
 
-    headers = ["Class", "Average Precision"]
-    print(tabulate(table, headers, tablefmt="grid"))
+    table_str = tabulate(table, headers=["Class", "Average Precision"], tablefmt="grid")
+    avg_str = tabulate([["Average", f"{np.mean(ap_score)*100:.2f}"]],
+                    headers=["", "Average Precision"], tablefmt="grid")
 
-    # Report average results in table
-    avg_table = [["Mean", f"{map_score*100:.2f}"]]
-    headers = ["", "Average Precision"]
+    # Print the results to the console.
+    print(table_str)
+    print(avg_str)
 
-    print(tabulate(avg_table, headers, tablefmt="grid"))
+    # Combine the strings into one text.
+    result_text = table_str + "\n\n" + avg_str
+
+    # Write the result to a text file.
+    with open(f"results/results_transformer{args.batch_size}_{args.learning_rate}_{args.num_epochs}_{args.warm_up_epochs}.txt", "w") as f:
+        f.write(result_text)
     
     print('CORRECTLY FINISHED TRAINING AND INFERENCE')
+    model_summary = summary(model, input_size=(args.batch_size, 50, 3, 224, 398), col_names=("output_size", "num_params", "mult_adds"))
+    summary_str = str(model_summary)
+
+    with open(f"summary/model_summary_transformer{args.batch_size}_{args.learning_rate}_{args.num_epochs}_{args.warm_up_epochs}.txt", "w") as f:
+        f.write(summary_str)
 
 
 if __name__ == '__main__':

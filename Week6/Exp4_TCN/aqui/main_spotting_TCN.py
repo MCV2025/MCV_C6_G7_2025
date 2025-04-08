@@ -9,30 +9,33 @@ import torch
 import os
 import numpy as np
 import random
-from torchinfo import summary
 from torch.optim.lr_scheduler import (
     ChainedScheduler, LinearLR, CosineAnnealingLR)
 import sys
 from torch.utils.data import DataLoader
 from tabulate import tabulate
-import wandb
-import optuna
+from torchinfo import summary
 
 #Local imports
 from util.io import load_json, store_json
-from util.eval_spotting import evaluate, evaluate_clip_level
+from util.eval_spotting import evaluate
 from dataset.datasets import get_datasets
-from model.model_spotting_vnpp import Model
-
+from model.model_spotting_TCN import Model
+import wandb
+import optuna
 
 def get_args():
     #Basic arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=str, required=True, 
-                        help="Model name; used to load config JSON (e.g., config/<model>.json)")
-    parser.add_argument('--seed', type=int, default=1)
+    parser.add_argument('--model', type=str, required=True)
+    parser.add_argument('--seed', type=int, default=1)    
     parser.add_argument('--early_stopping', type=bool, default=False, help='Enable early stopping')
     parser.add_argument('--optuna', action="store_true", help="Run hyperparameter optimization with Optuna")
+    parser.add_argument('--use_tpn', action='store_true', 
+                        help="If set, use the TPN-r50 feature extractor instead of the baseline.")
+    # Optionally, add a flag to control whether to return per-frame features
+    parser.add_argument('--return_frame_features', action='store_true', 
+                        help="If set, TPN-r50 will return per-frame features (instead of aggregating temporally).")
     return parser.parse_args()
 
 def update_args(args, config):
@@ -56,7 +59,7 @@ def update_args(args, config):
     args.device = config['device']
     args.num_workers = config['num_workers']
     args.patience = config['patience']
-    args.num_vlad_clusters = config['vlad_clusters']
+    args.backbone_scale = config['backbone_scale']
 
     return args
 
@@ -79,13 +82,13 @@ def run_training(args, trial):
     random.seed(args.seed)
 
     if trial:
-        execution_name = f'NetVLADpp_ft{str(trial.number)}'
+        execution_name = f'baseline_finetuning{str(trial.number)}'
     
     else:
-        execution_name = f'NetVLADpp'
+        execution_name = f'baseline'
 
     wandb.init(
-        project='Week6_NetVLADpp',
+        project='Week6_baseline',
         entity='mcv-c6g7',
         name=execution_name,
         config=args, reinit=True)
@@ -95,7 +98,7 @@ def run_training(args, trial):
     os.makedirs(ckpt_dir, exist_ok=True)
 
     # Get datasets train, validation (and validation for map -> Video dataset)
-    classes, train_data, val_data, test_data = get_datasets(args)
+    classes, train_data, val_data, test_data, val_video_data = get_datasets(args)
 
     if args.store_mode == 'store':
         print('Datasets have been stored correctly! Re-run changing "mode" to "load" in the config JSON.')
@@ -123,7 +126,13 @@ def run_training(args, trial):
 
     # Model
     model = Model(args=args)
-    optimizer, scaler = model.get_optimizer({'lr': args.learning_rate})
+
+    # optimizer, scaler = model.get_optimizer({'lr': args.learning_rate})
+    optimizer, scaler = model.get_optimizer({
+    'lr': args.learning_rate,
+    'backbone_scale': args.backbone_scale,
+    'weight_decay': 1e-4  # or any other optimizer settings 
+    })
 
     if not args.only_test:
         # Warmup schedule
@@ -132,7 +141,7 @@ def run_training(args, trial):
             args, optimizer, num_steps_per_epoch)
         
         losses = []
-        best_criterion = float('inf')
+        best_criterion = float('-inf')
         epoch = 0
         patience = args.patience  
         epochs_no_improve = 0
@@ -145,28 +154,26 @@ def run_training(args, trial):
                 lr_scheduler=lr_scheduler)
             
             val_loss = model.epoch(val_loader)
+            val_map, val_ap_cls = evaluate(model, val_video_data, nms_window = 5)
+            val_ap = np.mean(val_ap_cls)
 
             better = False
-            if val_loss < best_criterion:
-                best_criterion = val_loss
+            if val_ap > best_criterion:
+                best_criterion = val_ap
                 better = True
                 epochs_no_improve = 0
             else:
                 epochs_no_improve += 1
             
-            wandb.log({"epoch": epoch, "train_loss": train_loss, "val_loss": val_loss})
+            wandb.log({"epoch": epoch, "train_loss": train_loss, "val_loss": val_loss, "val_ap": val_ap})
             #Printing info epoch
-            print('[Epoch {}] Train loss: {:0.5f} Val loss: {:0.5f}'.format(
-                epoch, train_loss, val_loss))
+            print('[Epoch {}] Train loss: {:0.5f} Val loss: {:0.5f} Val ap: {:0.5f}'.format(
+                epoch, train_loss, val_loss, val_ap))
             if better:
                 print('New best mAP epoch!')
 
-            if args.early_stopping and epochs_no_improve >= patience:
-                print(f"Early stopping triggered after {epoch+1} epochs.")
-                break
-
             losses.append({
-                'epoch': epoch, 'train': train_loss, 'val': val_loss
+                'epoch': epoch, 'train': train_loss, 'val': val_loss, 'val_ap': val_ap
             })
 
             if args.save_dir is not None:
@@ -178,12 +185,12 @@ def run_training(args, trial):
     
     model_parameters = model.get_model_parameters()
     wandb.log({"model_params": model_parameters})
-    
+
     print('START INFERENCE')
     model.load(torch.load(os.path.join(ckpt_dir, 'checkpoint_best.pt')))
 
     # Evaluation on test split
-    map_score, ap_score = evaluate_clip_level(model, test_data, nms_window = 5)
+    map_score, ap_score = evaluate(model, test_data, nms_window = 5)
 
     # Report results per-class in table
     table = []
@@ -198,9 +205,8 @@ def run_training(args, trial):
     print(avg_str)
     # Combine the strings into one text.
     result_text = table_str + "\n\n" + avg_str
-    
-    # Write the result to a text file.
-    with open(f"results/results_netvladpp_baseline_{trial.number}_{args.batch_size}_{args.learning_rate}_{args.num_epochs}_{args.warm_up_epochs}_{args.patience}.txt", "w") as f:
+
+    with open(f"results/results_baseline_TCN_rny008_valap.txt", "w") as f:
         f.write(result_text)
     
     wandb.finish()
@@ -208,7 +214,7 @@ def run_training(args, trial):
     model_summary = summary(model, input_size=(args.batch_size, 50, 3, 224, 398), col_names=("output_size", "num_params", "mult_adds"))
     summary_str = str(model_summary)
 
-    with open(f"summary/model_summary_netvladpp_baseline_{trial.number}_{args.batch_size}_{args.learning_rate}_{args.num_epochs}_{args.warm_up_epochs}_{args.patience}.txt", "w") as f:
+    with open(f"summary/model_summary_baseline_TCN_rny008_valap.txt", "w") as f:
         f.write(summary_str)
 
     return best_criterion
@@ -223,18 +229,21 @@ def main(args):
         def objective(trial):
             # For each trial, reload the configuration and update args.
             config_trial = load_json(config_path)
-            new_args = update_args(argparse.Namespace(model=args.model, seed=args.seed, early_stopping=args.early_stopping, optuna=False), config_trial)
+            new_args = update_args(argparse.Namespace(model=args.model, seed=args.seed, optuna=False), config_trial)
             # Override hyperparameters using Optuna suggestions.
             new_args.batch_size = trial.suggest_categorical("batch_size", [4, 6])
             new_args.stride = trial.suggest_categorical("stride", [2])
-            new_args.learning_rate = trial.suggest_categorical("learning_rate", [
-            1e-5, 2e-5, 3e-5, 5e-5, 7e-5, 1e-4, 2e-4, 3e-4, 5e-4, 8e-4, 1e-3
-            ]) 
-            new_args.num_epochs = trial.suggest_categorical("num_epochs", [15, 20, 25, 30])
-            new_args.warm_up_epochs = trial.suggest_categorical("warm_up_epochs", [3, 5])
+            # new_args.learning_rate = trial.suggest_categorical("learning_rate", [.0008, 5e-4, 1e-4, 1e-3, 1e-2]) 
+            new_args.learning_rate = trial.suggest_categorical("learning_rate", [.0008, .0004, .0001, .001, 8e-5, 4e-5, 1e-5 ]) 
+            new_args.num_epochs = trial.suggest_categorical("num_epochs", [15, 20, 25, 30])  # [15, 20, 25, 30]
+            # new_args.warm_up_epochs = trial.suggest_categorical("warm_up_epochs", [1, 3, 5])
+            new_args.warm_up_epochs = trial.suggest_categorical("warm_up_epochs", [3, 5, 7])
 
-            new_args.patience = trial.suggest_categorical("patience", [15])
+            patience = int(round(new_args.num_epochs / 2))
+            if patience == 0 or not patience:
+                patience = 10
 
+            new_args.patience = trial.suggest_categorical("patience", [patience])
     
             # Run training for this trial.
             metric = run_training(new_args, trial)

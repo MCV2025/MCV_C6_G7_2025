@@ -95,7 +95,7 @@ def run_training(args, trial):
     os.makedirs(ckpt_dir, exist_ok=True)
 
     # Get datasets train, validation (and validation for map -> Video dataset)
-    classes, train_data, val_data, test_data = get_datasets(args)
+    classes, train_data, val_data, test_data, val_video_data = get_datasets(args)
 
     if args.store_mode == 'store':
         print('Datasets have been stored correctly! Re-run changing "mode" to "load" in the config JSON.')

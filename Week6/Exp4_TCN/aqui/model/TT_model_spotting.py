@@ -10,12 +10,13 @@ import torchvision.transforms as T
 from contextlib import nullcontext
 from tqdm import tqdm
 import torch.nn.functional as F
-from model.netvlad_pp import NetVLADPlusPlus
-import numpy as np
+import torchvision
+from torchvision.models._utils import IntermediateLayerGetter
+from torch.nn import TransformerEncoder, TransformerEncoderLayer
+
 
 #Local imports
 from model.modules import BaseRGBModel, FCLayers, step
-
 
 class Model(BaseRGBModel, nn.Module):
 
@@ -41,24 +42,32 @@ class Model(BaseRGBModel, nn.Module):
 
             else:
                 raise NotImplementedError(args._feature_arch)
-            
-            # NetVLAD++ aggregator
-            self._netvladpp = NetVLADPlusPlus(
-                feature_dim=self._d,
-                num_clusters=args.num_vlad_clusters  
+
+            self._features = features
+            # print(self._features)
+
+
+            self.feature_extractor = IntermediateLayerGetter(self._features, return_layers={"s4": "feat"})
+
+            self.pool = nn.AdaptiveAvgPool2d((1, 1))
+
+            # Learnable positional embeddings (B, T, D)
+            self.pos_embedding = nn.Parameter(torch.randn(1, args.clip_len, self._d))
+
+            # Transformer Encoder
+            encoder_layer = TransformerEncoderLayer(
+                d_model=self._d,
+                nhead=8,
+                dim_feedforward=512,
+                dropout=0.1,
+                batch_first=True
+            )
+            self.temporal_transformer = TransformerEncoder(
+                encoder_layer, num_layers=2
             )
 
             # MLP for classification
-            # If you want to classify after NetVLAD++: the input dim to FC is (num_clusters * feat_dim)
-            aggregator_dim = args.num_vlad_clusters * self._d
-            self._fc_vlad = FCLayers(aggregator_dim, args.num_classes + 1)
-
-            self._features = features
-
-            # MLP for classification
-            # +1 for background class (we now perform per-frame classification with softmax, 
-            # therefore we have the extra background class)
-            # self._fc = FCLayers(self._d, args.num_classes+1) 
+            self._fc = FCLayers(self._d, args.num_classes+1) # +1 for background class (we now perform per-frame classification with softmax, therefore we have the extra background class)
 
             #Augmentations and crop
             self.augmentation = T.Compose([
@@ -76,25 +85,31 @@ class Model(BaseRGBModel, nn.Module):
             ])
 
         def forward(self, x):
+            B, T, C, H, W = x.shape
             x = self.normalize(x) #Normalize to 0-1
-            batch_size, clip_len, channels, height, width = x.shape #B, T, C, H, W
+            # batch_size, clip_len, channels, height, width = x.shape #B, T, C, H, W
 
             if self.training:
                 x = self.augment(x) #augmentation per-batch
 
             x = self.standarize(x) #standarization imagenet stats
+            x = x.view(-1, C, H, W)  # (B*T, C, H, W)
 
-            # 1) Framewise feature extraction         
-            im_feat = self._features(
-                x.view(-1, channels, height, width)
-            ).reshape(batch_size, clip_len, self._d) #B, T, D
+            with torch.no_grad():
+                features = self.feature_extractor(x)["feat"]
+            features = self.pool(features).flatten(1)  # (B*T, D)
+            features = features.view(B, T, -1)  # (B, T, D)
 
-            # 2) NetVLAD++ aggregation
-            aggregated_feat = self._netvladpp(im_feat)  # shape => (B, num_clusters * D)
+            # Positional embeddings
+            pos_embed = self.pos_embedding[:, :T, :]
+            features = features + pos_embed
 
-            # 3) Classification
-            logits = self._fc_vlad(aggregated_feat)  # (B, num_classes+1)
-            return logits
+            # Temporal modeling
+            features = self.temporal_transformer(features)  # (B, T, D)
+
+            # Classification
+            output = self._fc(features)  # (B, T, num_classes + 1)
+            return output
         
         def normalize(self, x):
             return x / 255.
@@ -115,7 +130,6 @@ class Model(BaseRGBModel, nn.Module):
 
         def get_model_parameters(self):
             return self.model_params
-        
 
     def __init__(self, args=None):
 
@@ -158,19 +172,13 @@ class Model(BaseRGBModel, nn.Module):
         with torch.no_grad() if optimizer is None else nullcontext():
             for batch_idx, batch in enumerate(tqdm(loader)):
                 frame = batch['frame'].to(self.device).float()
-                label = batch['label'].to(self.device).long()
-                if label.dim() > 1:
-                    label = label[:, 0]
+                label = batch['label']
+                label = label.to(self.device).long()
 
                 with torch.cuda.amp.autocast():
                     pred = self._model(frame)
-                    # pred = pred.view(-1, self._num_classes + 1) # B*T, num_classes
-                    # label = label.view(-1) # B*T
-                    # label = label.squeeze(1)
-
-                    # print("pred.shape:", pred.shape)   # Should see (B, num_classes+1)
-                    # print("label.shape:", label.shape) # Should see (B,)
-
+                    pred = pred.view(-1, self._num_classes + 1) # B*T, num_classes
+                    label = label.view(-1) # B*T
                     loss = F.cross_entropy(
                             pred, label, reduction='mean', weight = weights)
 
@@ -199,13 +207,9 @@ class Model(BaseRGBModel, nn.Module):
 
             # apply sigmoid
             pred = torch.softmax(pred, dim=-1)
-            pred = pred.cpu().numpy()
             
-            # Ensure the output is 2D.
-            if pred.ndim == 1:
-                pred = pred[np.newaxis, :]
-            return pred
-        
+            return pred.cpu().numpy()
+    
     def forward(self, x):
     # Delegate forward to the inner model.
         return self._model(x)
@@ -213,4 +217,3 @@ class Model(BaseRGBModel, nn.Module):
         # If needed, also delegate children()
     def children(self):
         return self._model.children()
-

@@ -15,24 +15,20 @@ from torch.optim.lr_scheduler import (
 import sys
 from torch.utils.data import DataLoader
 from tabulate import tabulate
-import wandb
-import optuna
 
 #Local imports
 from util.io import load_json, store_json
-from util.eval_spotting import evaluate, evaluate_clip_level
+from util.eval_spotting import evaluate
 from dataset.datasets import get_datasets
-from model.model_spotting_vnpp import Model
+from model.TT_model_spotting import Model
 
 
 def get_args():
     #Basic arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=str, required=True, 
-                        help="Model name; used to load config JSON (e.g., config/<model>.json)")
+    parser.add_argument('--model', type=str, required=True)
     parser.add_argument('--seed', type=int, default=1)
     parser.add_argument('--early_stopping', type=bool, default=False, help='Enable early stopping')
-    parser.add_argument('--optuna', action="store_true", help="Run hyperparameter optimization with Optuna")
     return parser.parse_args()
 
 def update_args(args, config):
@@ -56,7 +52,6 @@ def update_args(args, config):
     args.device = config['device']
     args.num_workers = config['num_workers']
     args.patience = config['patience']
-    args.num_vlad_clusters = config['vlad_clusters']
 
     return args
 
@@ -70,25 +65,19 @@ def get_lr_scheduler(args, optimizer, num_steps_per_epoch):
         CosineAnnealingLR(optimizer,
             num_steps_per_epoch * cosine_epochs)])
 
+def worker_init_fn(id):
+        random.seed(id * 100)
 
-def run_training(args, trial):
+def main(args):
     # Set seed
     print('Setting seed to: ', args.seed)
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     random.seed(args.seed)
 
-    if trial:
-        execution_name = f'NetVLADpp_ft{str(trial.number)}'
-    
-    else:
-        execution_name = f'NetVLADpp'
-
-    wandb.init(
-        project='Week6_NetVLADpp',
-        entity='mcv-c6g7',
-        name=execution_name,
-        config=args, reinit=True)
+    config_path = 'config/' + args.model + '.json'
+    config = load_json(config_path)
+    args = update_args(args, config)
 
     # Directory for storing / reading model checkpoints
     ckpt_dir = os.path.join(args.save_dir, 'checkpoints')
@@ -103,8 +92,6 @@ def run_training(args, trial):
     else:
         print('Datasets have been loaded from previous versions correctly!')
 
-    def worker_init_fn(id):
-        random.seed(id + epoch * 100)
 
     # Dataloaders
     train_loader = DataLoader(
@@ -123,6 +110,7 @@ def run_training(args, trial):
 
     # Model
     model = Model(args=args)
+
     optimizer, scaler = model.get_optimizer({'lr': args.learning_rate})
 
     if not args.only_test:
@@ -154,7 +142,6 @@ def run_training(args, trial):
             else:
                 epochs_no_improve += 1
             
-            wandb.log({"epoch": epoch, "train_loss": train_loss, "val_loss": val_loss})
             #Printing info epoch
             print('[Epoch {}] Train loss: {:0.5f} Val loss: {:0.5f}'.format(
                 epoch, train_loss, val_loss))
@@ -177,13 +164,11 @@ def run_training(args, trial):
                     torch.save( model.state_dict(), os.path.join(ckpt_dir, 'checkpoint_best.pt') )
     
     model_parameters = model.get_model_parameters()
-    wandb.log({"model_params": model_parameters})
-    
     print('START INFERENCE')
     model.load(torch.load(os.path.join(ckpt_dir, 'checkpoint_best.pt')))
 
     # Evaluation on test split
-    map_score, ap_score = evaluate_clip_level(model, test_data, nms_window = 5)
+    map_score, ap_score = evaluate(model, test_data, nms_window = 5)
 
     # Report results per-class in table
     table = []
@@ -194,62 +179,24 @@ def run_training(args, trial):
     avg_str = tabulate([["Mean", f"{np.mean(map_score)*100:.2f}"]],
                     headers=["", "Average Precision"], tablefmt="grid")
 
+    # Print the results to the console.
     print(table_str)
     print(avg_str)
+
     # Combine the strings into one text.
     result_text = table_str + "\n\n" + avg_str
-    
+
     # Write the result to a text file.
-    with open(f"results/results_netvladpp_baseline_{trial.number}_{args.batch_size}_{args.learning_rate}_{args.num_epochs}_{args.warm_up_epochs}_{args.patience}.txt", "w") as f:
+    with open(f"results/results_transformer{args.batch_size}_{args.learning_rate}_{args.num_epochs}_{args.warm_up_epochs}.txt", "w") as f:
         f.write(result_text)
     
-    wandb.finish()
     print('CORRECTLY FINISHED TRAINING AND INFERENCE')
     model_summary = summary(model, input_size=(args.batch_size, 50, 3, 224, 398), col_names=("output_size", "num_params", "mult_adds"))
     summary_str = str(model_summary)
 
-    with open(f"summary/model_summary_netvladpp_baseline_{trial.number}_{args.batch_size}_{args.learning_rate}_{args.num_epochs}_{args.warm_up_epochs}_{args.patience}.txt", "w") as f:
+    with open(f"summary/model_summary_transformer{args.batch_size}_{args.learning_rate}_{args.num_epochs}_{args.warm_up_epochs}.txt", "w") as f:
         f.write(summary_str)
 
-    return best_criterion
-
-def main(args):
-    # Load the configuration JSON based on the provided model name.
-    config_path = os.path.join('config', args.model + '.json')
-    config = load_json(config_path)
-    args = update_args(args, config)
-
-    if args.optuna:
-        def objective(trial):
-            # For each trial, reload the configuration and update args.
-            config_trial = load_json(config_path)
-            new_args = update_args(argparse.Namespace(model=args.model, seed=args.seed, early_stopping=args.early_stopping, optuna=False), config_trial)
-            # Override hyperparameters using Optuna suggestions.
-            new_args.batch_size = trial.suggest_categorical("batch_size", [4, 6])
-            new_args.stride = trial.suggest_categorical("stride", [2])
-            new_args.learning_rate = trial.suggest_categorical("learning_rate", [
-            1e-5, 2e-5, 3e-5, 5e-5, 7e-5, 1e-4, 2e-4, 3e-4, 5e-4, 8e-4, 1e-3
-            ]) 
-            new_args.num_epochs = trial.suggest_categorical("num_epochs", [15, 20, 25, 30])
-            new_args.warm_up_epochs = trial.suggest_categorical("warm_up_epochs", [3, 5])
-
-            new_args.patience = trial.suggest_categorical("patience", [15])
-
-    
-            # Run training for this trial.
-            metric = run_training(new_args, trial)
-            return metric
-
-        study = optuna.create_study(direction="minimize")
-        study.optimize(objective, n_trials=20)
-        print("Best trial:")
-        trial = study.best_trial
-        print(f"  Value: {trial.value}")
-        print("  Params:")
-        for key, value in trial.params.items():
-            print(f"    {key}: {value}")
-    else:
-        run_training(args, trial=None)
 
 if __name__ == '__main__':
     main(get_args())

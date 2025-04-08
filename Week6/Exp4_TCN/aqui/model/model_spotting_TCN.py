@@ -10,12 +10,12 @@ import torchvision.transforms as T
 from contextlib import nullcontext
 from tqdm import tqdm
 import torch.nn.functional as F
-from model.netvlad_pp import NetVLADPlusPlus
-import numpy as np
+from model.tcn_model import TCNAggregator
+from model.tpn_r50 import load_tpn_r50
+
 
 #Local imports
 from model.modules import BaseRGBModel, FCLayers, step
-
 
 class Model(BaseRGBModel, nn.Module):
 
@@ -27,38 +27,38 @@ class Model(BaseRGBModel, nn.Module):
             self.args = args
             self.model_params = None
 
-            if self._feature_arch.startswith(('rny002', 'rny004', 'rny008')):
-                features = timm.create_model({
-                    'rny002': 'regnety_002',
-                    'rny004': 'regnety_004',
-                    'rny008': 'regnety_008',
-                }[self._feature_arch.rsplit('_', 1)[0]], pretrained=True)
-                feat_dim = features.head.fc.in_features
-
-                # Remove final classification layer
-                features.head.fc = nn.Identity()
-                self._d = feat_dim
+            if hasattr(args, "use_tpn") and args.use_tpn:
+                self._features = load_tpn_r50(args)
+                # self._d = self._features.out_dim
+                # Define the output dimension accordingly:
+                if getattr(args, "return_frame_features", False):
+                    self._d = self._features.neck.fusion_conv.out_channels  # or a defined value
+                else:
+                    self._d = self._features.cls_head[3].in_features  # as set in the classification head
 
             else:
-                raise NotImplementedError(args._feature_arch)
+
+                if self._feature_arch.startswith(('rny002', 'rny004', 'rny008')):
+                    features = timm.create_model({
+                        'rny002': 'regnety_002',
+                        'rny004': 'regnety_004',
+                        'rny008': 'regnety_008',
+                    }[self._feature_arch.rsplit('_', 1)[0]], pretrained=True)
+                    feat_dim = features.head.fc.in_features
+                    self._features = features
+                    # Remove final classification layer
+                    features.head.fc = nn.Identity()
+                    self._d = feat_dim
+
+                else:
+                    raise NotImplementedError(args._feature_arch)
+
+            # Define TCN aggregator to process per-frame features (B, T, D) -> (B, T, D)
+            self.tcn = TCNAggregator(in_channels=self._d, out_channels=self._d)
             
-            # NetVLAD++ aggregator
-            self._netvladpp = NetVLADPlusPlus(
-                feature_dim=self._d,
-                num_clusters=args.num_vlad_clusters  
-            )
-
-            # MLP for classification
-            # If you want to classify after NetVLAD++: the input dim to FC is (num_clusters * feat_dim)
-            aggregator_dim = args.num_vlad_clusters * self._d
-            self._fc_vlad = FCLayers(aggregator_dim, args.num_classes + 1)
-
-            self._features = features
-
-            # MLP for classification
-            # +1 for background class (we now perform per-frame classification with softmax, 
-            # therefore we have the extra background class)
-            # self._fc = FCLayers(self._d, args.num_classes+1) 
+            # Define frame-level classification head.
+            # FCLayers should output (B, T, num_classes+1).
+            self.frame_fc = FCLayers(self._d, args.num_classes + 1)
 
             #Augmentations and crop
             self.augmentation = T.Compose([
@@ -84,16 +84,23 @@ class Model(BaseRGBModel, nn.Module):
 
             x = self.standarize(x) #standarization imagenet stats
 
-            # 1) Framewise feature extraction         
-            im_feat = self._features(
-                x.view(-1, channels, height, width)
-            ).reshape(batch_size, clip_len, self._d) #B, T, D
+            if hasattr(self.args, "use_tpn") and self.args.use_tpn:
+                # When using TPN, pass the 5D tensor directly.
+                im_feat = self._features(x)
+                # We expect im_feat to be of shape (B, T, D) if TPN_R50 is implemented with
+                # the flag return_frame_features=True.
+            else:
+                        
+                # Extract per-frame features: reshape input to (B*T, C, H, W)
+                im_feat = self._features(x.view(-1, channels, height, width))
+                im_feat = im_feat.reshape(batch_size, clip_len, self._d)  # (B, T, D)
 
-            # 2) NetVLAD++ aggregation
-            aggregated_feat = self._netvladpp(im_feat)  # shape => (B, num_clusters * D)
+            # Pass features through TCN aggregator (preserving temporal resolution)
+            tcn_out = self.tcn(im_feat)  # (B, T, D)
 
-            # 3) Classification
-            logits = self._fc_vlad(aggregated_feat)  # (B, num_classes+1)
+            # Frame-level classification: produce logits for each frame.
+            logits = self.frame_fc(tcn_out)  # (B, T, num_classes+1)
+
             return logits
         
         def normalize(self, x):
@@ -115,7 +122,6 @@ class Model(BaseRGBModel, nn.Module):
 
         def get_model_parameters(self):
             return self.model_params
-        
 
     def __init__(self, args=None):
 
@@ -158,19 +164,13 @@ class Model(BaseRGBModel, nn.Module):
         with torch.no_grad() if optimizer is None else nullcontext():
             for batch_idx, batch in enumerate(tqdm(loader)):
                 frame = batch['frame'].to(self.device).float()
-                label = batch['label'].to(self.device).long()
-                if label.dim() > 1:
-                    label = label[:, 0]
+                label = batch['label']
+                label = label.to(self.device).long()
 
                 with torch.cuda.amp.autocast():
                     pred = self._model(frame)
-                    # pred = pred.view(-1, self._num_classes + 1) # B*T, num_classes
-                    # label = label.view(-1) # B*T
-                    # label = label.squeeze(1)
-
-                    # print("pred.shape:", pred.shape)   # Should see (B, num_classes+1)
-                    # print("label.shape:", label.shape) # Should see (B,)
-
+                    pred = pred.view(-1, self._num_classes + 1) # B*T, num_classes
+                    label = label.view(-1) # B*T
                     loss = F.cross_entropy(
                             pred, label, reduction='mean', weight = weights)
 
@@ -199,13 +199,9 @@ class Model(BaseRGBModel, nn.Module):
 
             # apply sigmoid
             pred = torch.softmax(pred, dim=-1)
-            pred = pred.cpu().numpy()
             
-            # Ensure the output is 2D.
-            if pred.ndim == 1:
-                pred = pred[np.newaxis, :]
-            return pred
-        
+            return pred.cpu().numpy()
+
     def forward(self, x):
     # Delegate forward to the inner model.
         return self._model(x)
@@ -213,4 +209,3 @@ class Model(BaseRGBModel, nn.Module):
         # If needed, also delegate children()
     def children(self):
         return self._model.children()
-
