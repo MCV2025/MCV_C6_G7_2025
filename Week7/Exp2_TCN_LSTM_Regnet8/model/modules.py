@@ -116,29 +116,10 @@ class FCLayers(nn.Module):
     #         lr_scheduler.step()
     #     optimizer.zero_grad()
 
-    def step(optimizer: torch.optim.Optimizer,
-         scaler: torch.cuda.amp.GradScaler,
-         loss: torch.Tensor,
-         lr_scheduler=None):
-        """
-        A simple wrapper for mixed‑precision + scheduler.
-        """
-        # Scales gradients, calls backward
-        scaler.scale(loss).backward()
-        # Unscale & step optimizer
-        scaler.step(optimizer)
-        # Update the scale for next iteration
-        scaler.update()
-        # Step the LR scheduler if provided
-        if lr_scheduler is not None:
-            lr_scheduler.step()
-        # Zero grads for next iteration
-        optimizer.zero_grad()
-
 def step(optimizer: torch.optim.Optimizer,
-         scaler: torch.cuda.amp.GradScaler,
-         loss: torch.Tensor,
-         lr_scheduler=None):
+        scaler: torch.cuda.amp.GradScaler,
+        loss: torch.Tensor,
+        lr_scheduler=None):
     """
     A simple wrapper for mixed‑precision + scheduler.
     """

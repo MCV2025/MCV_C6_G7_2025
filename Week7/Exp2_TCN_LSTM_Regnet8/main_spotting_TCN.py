@@ -33,6 +33,8 @@ def get_args():
     parser.add_argument('--optuna', action="store_true", help="Run hyperparameter optimization with Optuna")
     parser.add_argument('--use_tpn', action='store_true', 
                         help="If set, use the TPN-r50 feature extractor instead of the baseline.")
+    print(parser.parse_args())
+    return parser.parse_args()
 
 def update_args(args, config):
     #Update arguments with config file
@@ -56,6 +58,8 @@ def update_args(args, config):
     args.num_workers = config['num_workers']
     args.patience = config['patience']
     args.backbone_scale = config['backbone_scale']
+    args.stride = config['stride']
+    args.downsample_factor = config['downsample_factor']
 
     return args
 
@@ -78,16 +82,16 @@ def run_training(args, trial):
     random.seed(args.seed)
 
     if trial:
-        execution_name = f'baseline_finetuning{str(trial.number)}'
+        execution_name = f'TPNr8_TCN_finetuning{str(trial.number)}'
     
     else:
-        execution_name = f'baseline'
+        execution_name = f'TPNr8_TCN'
 
-    # wandb.init(
-    #     project='Week6_baseline',
-    #     entity='mcv-c6g7',
-    #     name=execution_name,
-    #     config=args, reinit=True)
+    wandb.init(
+        project='Week7_TPN-R8_TCN',
+        entity='mcv-c6g7',
+        name=execution_name,
+        config=args, reinit=True)
 
     # Directory for storing / reading model checkpoints
     ckpt_dir = os.path.join(args.save_dir, 'checkpoints')
@@ -125,10 +129,14 @@ def run_training(args, trial):
 
     # optimizer, scaler = model.get_optimizer({'lr': args.learning_rate})
     optimizer, scaler = model.get_optimizer({
-    'lr': args.learning_rate,
-    'backbone_scale': args.backbone_scale,
-    'weight_decay': 1e-4  # or any other optimizer settings 
+    'lr': args.learning_rate
     })
+
+    # optimizer, scaler = model.get_optimizer({
+    # 'lr': args.learning_rate,
+    # 'backbone_scale': args.backbone_scale,
+    # 'weight_decay': 1e-4  # or any other optimizer settings 
+    # })
 
     if not args.only_test:
         # Warmup schedule
@@ -177,13 +185,13 @@ def run_training(args, trial):
                 store_json(os.path.join(args.save_dir, 'loss.json'), losses, pretty=True)
 
                 if better:
-                    torch.save( model.state_dict(), os.path.join(ckpt_dir, 'checkpoint_best_50ep.pt') )
+                    torch.save( model.state_dict(), os.path.join(ckpt_dir, 'checkpoint_ep_TCN_r8.pt') )
     
     # model_parameters = model.get_model_parameters()
     # wandb.log({"model_params": model_parameters})
 
     print('START INFERENCE')
-    model.load(torch.load(os.path.join(ckpt_dir, 'checkpoint_best_50ep.pt')))
+    model.load(torch.load(os.path.join(ckpt_dir, 'checkpoint_ep_TCN_r8.pt')))
 
     # Evaluation on test split
     map_score, ap_score = evaluate(model, test_data, nms_window = 5)
@@ -205,7 +213,7 @@ def run_training(args, trial):
     with open(f"results/results_baseline_TCN_rny008_50ep.txt", "w") as f:
         f.write(result_text)
     
-    # wandb.finish()
+    wandb.finish()
     print('CORRECTLY FINISHED TRAINING AND INFERENCE')
     model_summary = summary(model, input_size=(args.batch_size, 50, 3, 224, 398), col_names=("output_size", "num_params", "mult_adds"))
     summary_str = str(model_summary)
@@ -217,7 +225,9 @@ def run_training(args, trial):
 
 def main(args):
     # Load the configuration JSON based on the provided model name.
+    print(args)
     config_path = os.path.join('config', args.model + '.json')
+    
     config = load_json(config_path)
     args = update_args(args, config)
 

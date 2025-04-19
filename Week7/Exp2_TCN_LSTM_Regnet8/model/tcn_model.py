@@ -9,6 +9,7 @@ class TCNAggregator(nn.Module):
                  kernel_size: int = 3,
                  num_layers: int = 3,
                  downsample: int = 1,
+                 stride: int = 2,
                  upsample: bool = False):
         """
         A Temporal Convolutional Network that optionally reduces
@@ -33,7 +34,7 @@ class TCNAggregator(nn.Module):
         if downsample > 1:
             self.pool = nn.AvgPool1d(
                 kernel_size=downsample,
-                stride=downsample,
+                stride=stride,
                 padding=0,
                 ceil_mode=False
             )
@@ -66,6 +67,8 @@ class TCNAggregator(nn.Module):
         """
         # (B, T, D) → (B, D, T)
         x = x.transpose(1, 2)
+        # remember the *true* input length
+        T_orig = x.size(-1)
 
         # downsample in time
         if self.pool is not None:
@@ -76,11 +79,10 @@ class TCNAggregator(nn.Module):
 
         # optionally interpolate back to the original T
         if self.upsample and self.downsample > 1:
-            length_orig = x.shape[-1] * self.downsample
             # linear interpolation along the time‐axis
             x = F.interpolate(
                 x,
-                size=length_orig,
+                size=T_orig,
                 mode='linear',
                 align_corners=False
             )

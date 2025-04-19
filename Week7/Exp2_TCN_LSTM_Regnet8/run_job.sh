@@ -14,6 +14,4 @@ source /home/xavier/Projects/MasterCV/C6_Lab/.soccerenv/bin/activate
 export PYTHONUNBUFFERED=1
 
 # run your script (use full path)
-srun python -u /home/xavier/Projects/MasterCV/C6_Lab/Week7/Exp2_TCN_LSTM_Regnet8/main_spotting_TCN.py \
-    --model TCN_r8 \
-    --use_tpn
+srun -u python main_spotting_TCN.py --model TCN_r8 --use_tpn

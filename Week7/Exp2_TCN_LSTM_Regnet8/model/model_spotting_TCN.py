@@ -41,8 +41,8 @@ class Model(BaseRGBModel, nn.Module):
                     }[self._feature_arch.rsplit('_', 1)[0]], pretrained=True)
 
                     # Assuming your model instance is called 'model'
-                    for name, param in features.named_parameters():
-                        print(name)
+                    # for name, param in features.named_parameters():
+                    #     print(name)
 
                     feat_dim = features.head.fc.in_features
                     self._features = features
@@ -63,7 +63,7 @@ class Model(BaseRGBModel, nn.Module):
                 num_layers=3,
                 downsample=ds,
                 upsample=True   # or True, depending on whether you need T_out=T_in
-)
+            )
             
             # Define frame-level classification head.
             # FCLayers should output (B, T, num_classes+1).
