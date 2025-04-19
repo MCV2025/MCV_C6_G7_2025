@@ -54,7 +54,16 @@ class Model(BaseRGBModel, nn.Module):
                     raise NotImplementedError(args._feature_arch)
 
             # Define TCN aggregator to process per-frame features (B, T, D) -> (B, T, D)
-            self.tcn = TCNAggregator(in_channels=self._d, out_channels=self._d)
+            ds = getattr(self.args, "downsample_factor",
+                 getattr(self.args, "stride"))
+            # set upsampling=True if you still want outputs at the original T
+            self.tcn = TCNAggregator(
+                in_channels=self._d,
+                out_channels=self._d,
+                num_layers=3,
+                downsample=ds,
+                upsample=True   # or True, depending on whether you need T_out=T_in
+)
             
             # Define frame-level classification head.
             # FCLayers should output (B, T, num_classes+1).

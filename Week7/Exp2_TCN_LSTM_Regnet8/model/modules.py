@@ -101,17 +101,55 @@ class FCLayers(nn.Module):
         elif len(x.shape) == 2:
             return self._fc_out(self.dropout(x))
 
-    def step(optimizer, scaler, loss, lr_scheduler=None):
-        if scaler is None:
-            loss.backward()
-        else:
-            scaler.scale(loss).backward()
+    # def step(optimizer, scaler, loss, lr_scheduler=None):
+    #     if scaler is None:
+    #         loss.backward()
+    #     else:
+    #         scaler.scale(loss).backward()
 
-        if scaler is None:
-            optimizer.step()
-        else:
-            scaler.step(optimizer)
-            scaler.update()
+    #     if scaler is None:
+    #         optimizer.step()
+    #     else:
+    #         scaler.step(optimizer)
+    #         scaler.update()
+    #     if lr_scheduler is not None:
+    #         lr_scheduler.step()
+    #     optimizer.zero_grad()
+
+    def step(optimizer: torch.optim.Optimizer,
+         scaler: torch.cuda.amp.GradScaler,
+         loss: torch.Tensor,
+         lr_scheduler=None):
+        """
+        A simple wrapper for mixed‑precision + scheduler.
+        """
+        # Scales gradients, calls backward
+        scaler.scale(loss).backward()
+        # Unscale & step optimizer
+        scaler.step(optimizer)
+        # Update the scale for next iteration
+        scaler.update()
+        # Step the LR scheduler if provided
         if lr_scheduler is not None:
             lr_scheduler.step()
+        # Zero grads for next iteration
         optimizer.zero_grad()
+
+def step(optimizer: torch.optim.Optimizer,
+         scaler: torch.cuda.amp.GradScaler,
+         loss: torch.Tensor,
+         lr_scheduler=None):
+    """
+    A simple wrapper for mixed‑precision + scheduler.
+    """
+    # Scales gradients, calls backward
+    scaler.scale(loss).backward()
+    # Unscale & step optimizer
+    scaler.step(optimizer)
+    # Update the scale for next iteration
+    scaler.update()
+    # Step the LR scheduler if provided
+    if lr_scheduler is not None:
+        lr_scheduler.step()
+    # Zero grads for next iteration
+    optimizer.zero_grad()

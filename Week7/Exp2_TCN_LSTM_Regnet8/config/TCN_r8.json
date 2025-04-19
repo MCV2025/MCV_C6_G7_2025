@@ -18,5 +18,6 @@
     "device": "cuda",
     "num_workers": 4,
     "patience": 15,
-    "backbone_scale": 0.1
+    "backbone_scale": 0.1,
+    "downsample_factor": 8
 }
