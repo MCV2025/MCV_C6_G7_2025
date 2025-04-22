@@ -31,6 +31,7 @@ def get_args():
     parser.add_argument('--seed', type=int, default=1)    
     parser.add_argument('--early_stopping', type=bool, default=False, help='Enable early stopping')
     parser.add_argument('--optuna', action="store_true", help="Run hyperparameter optimization with Optuna")
+    print(parser.parser_args())
     return parser.parse_args()
 
 def update_args(args, config):
@@ -204,10 +205,12 @@ def run_training(args, trial):
     with open(f"summary/model_summary_baseline_{trial.number}_{args.batch_size}_{args.learning_rate}_{args.num_epochs}_{args.warm_up_epochs}_{args.patience}.txt", "w") as f:
         f.write(summary_str)
 
-    return best_criterion
+    if not args.only_test:
+        return best_criterion
 
 def main(args):
     # Load the configuration JSON based on the provided model name.
+    # print(args)
     config_path = os.path.join('config', args.model + '.json')
     config = load_json(config_path)
     args = update_args(args, config)

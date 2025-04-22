@@ -51,7 +51,7 @@ class TPN_R50(nn.Module):
       
     The model expects an input tensor of shape (B, T, C, H, W) and returns clip-level logits.
     """
-    def __init__(self, num_classes, clip_len=50):
+    def __init__(self, num_classes, clip_len=50, feature_arch='rny002'):
         """
         Args:
             num_classes (int): Number of target classes.
@@ -65,24 +65,22 @@ class TPN_R50(nn.Module):
                         'rny002': 'regnety_002',
                         'rny004': 'regnety_004',
                         'rny008': 'regnety_008',
-                    }[self._feature_arch.rsplit('_', 1)[0]], pretrained=True)
+                    }[feature_arch.rsplit('_', 1)[0]], 
+                    pretrained=True,
+                    features_only=True,
+                    out_indices=(-2, -1) )
         
         for param in self.backbone.parameters():
             param.requires_grad = False
+
         
         # For example, use the last two stages' features.
         # The backbone returns a list; we take indices -2 and -1.
-        in_channels_list = self.backbone.feature_info.channels()[-2:]
+        # in_channels_list = self.backbone.feature_info.channels()[-2:]
+        in_channels_list = [f['num_chs'] for f in self.backbone.feature_info][-2:]
         # Define the TPN neck. Here we set the neck's output channels to 1024 (as in the MMAction2 config).
         neck_out_channels = 126
         self.neck = SimpleTPN(in_channels_list, neck_out_channels)
-        # # Classification head: perform global average pooling and then classify.
-        # self.cls_head = nn.Sequential(
-        #     nn.AdaptiveAvgPool2d((1, 1)),
-        #     nn.Flatten(),
-        #     nn.Dropout(0.5),
-        #     nn.Linear(neck_out_channels, num_classes)
-        # )
 
     def forward(self, x):
         """
@@ -103,7 +101,9 @@ class TPN_R50(nn.Module):
         # Reshape each feature map to (B, T, C_i, H_i, W_i) and average over the temporal dimension.
         aggregated_feats = []
         for feat in features:
-            feat = feat.view(B, T, feat.size(1), feat.size(2), feat.size(3))
+            feat = feat.view(B, T, *feat.shape[1:])
+            # feat = feat.view(B, T, feat.size(1), feat.size(2), feat.size(3))
+            
             # Temporal average pooling.
             aggregated_feats.append(feat)
         # Fuse the aggregated features with the TPN neck.
@@ -118,7 +118,7 @@ class TPN_R50(nn.Module):
         features_out = torch.stack(frame_features, dim=1)
         return features_out
 
-def load_tpn_r50(args):
+def load_tpn(args):
     """
     Helper function to load the TPN-R50 feature extractor/model.
     
@@ -133,8 +133,8 @@ def load_tpn_r50(args):
     """
     model = TPN_R50(num_classes=args.num_classes,
                     clip_len=args.clip_len,
-                    pretrained=True)
-    model.eval()
+                    feature_arch=args.feature_arch)
+    
     return model
 
 # Example usage:

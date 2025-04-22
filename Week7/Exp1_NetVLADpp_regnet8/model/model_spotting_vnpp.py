@@ -10,7 +10,7 @@ import torchvision.transforms as T
 from contextlib import nullcontext
 from tqdm import tqdm
 import torch.nn.functional as F
-from model.netvlad_pp import NetVLADPlusPlus
+from model.netvlad_pp import NetVLADpp
 import numpy as np
 
 #Local imports
@@ -45,10 +45,22 @@ class Model(BaseRGBModel, nn.Module):
             else:
                 raise NotImplementedError(args._feature_arch)
             
-            # NetVLAD++ aggregator
-            self._netvladpp = NetVLADPlusPlus(
-                feature_dim=self._d,
-                num_clusters=args.num_vlad_clusters  
+            # # NetVLAD++ aggregator
+            # self._netvladpp = NetVLADPlusPlus(
+            #     feature_dim=self._d,
+            #     num_clusters=args.num_vlad_clusters  
+            # )
+
+            # pick from config or args:
+            ds = getattr(args, "downsample_factor")
+            stride = getattr(args, "stride")
+
+            self.netvlad = NetVLADpp(
+                num_clusters=args.num_vlad_clusters,
+                dim=self._d,
+                downsample=ds,
+                stride=stride,
+                upsample=True   # so you get back (B, T, …) and need no eval‐script changes
             )
 
             # MLP for classification

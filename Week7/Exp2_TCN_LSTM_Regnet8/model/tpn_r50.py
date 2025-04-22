@@ -64,6 +64,9 @@ class TPN_R50(nn.Module):
         # Use timm to create a ResNet-50 backbone that returns intermediate features.
         # Set features_only=True to obtain a list of feature maps.
         self.backbone = timm.create_model('resnet50', pretrained=pretrained, features_only=True)
+        for param in self.backbone.parameters():
+            param.requires_grad = False
+        
         # For example, use the last two stages' features.
         # The backbone returns a list; we take indices -2 and -1.
         in_channels_list = self.backbone.feature_info.channels()[-2:]
@@ -112,7 +115,7 @@ class TPN_R50(nn.Module):
         features_out = torch.stack(frame_features, dim=1)
         return features_out
 
-def load_tpn_r50(args):
+def load_tpn(args):
     """
     Helper function to load the TPN-R50 feature extractor/model.
     

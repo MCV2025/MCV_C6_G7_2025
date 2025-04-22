@@ -150,7 +150,8 @@ def run_training(args, trial):
                 lr_scheduler=lr_scheduler)
             
             val_loss = model.epoch(val_loader)
-            val_ap, val_ap_cls = evaluate_clip_level(model, val_video_data, nms_window = 5)
+            val_map, val_ap_cls = evaluate(model, val_video_data, nms_window = 5)
+            val_ap = np.mean(val_ap_cls)
 
             better = False
             if val_ap > best_criterion:
@@ -243,7 +244,6 @@ def main(args):
 
             new_args.patience = trial.suggest_categorical("patience", [15])
 
-    
             # Run training for this trial.
             metric = run_training(new_args, trial)
             return metric
