@@ -33,6 +33,8 @@ def get_args():
     parser.add_argument('--seed', type=int, default=1)
     parser.add_argument('--early_stopping', type=bool, default=False, help='Enable early stopping')
     parser.add_argument('--optuna', action="store_true", help="Run hyperparameter optimization with Optuna")
+    parser.add_argument('--use_tpn', action='store_true', 
+                        help="If set, use the TPN-r50 feature extractor instead of the baseline.")
     return parser.parse_args()
 
 def update_args(args, config):
@@ -56,8 +58,9 @@ def update_args(args, config):
     args.device = config['device']
     args.num_workers = config['num_workers']
     args.patience = config['patience']
-    args.num_vlad_clusters = config['vlad_clusters']
-    args.backbone_scale = config['backbone_scale']
+    args.vlad_clusters = config['vlad_clusters']
+    args.downsample_factor = config['downsample_factor']
+    args.stride = config['stride']
 
     return args
 
@@ -86,7 +89,7 @@ def run_training(args, trial):
         execution_name = f'NetVLADpp_regnet8'
 
     wandb.init(
-        project='Week7_NetVLADpp_Regnet8',
+        project='Week7_NetVLADpp_TPNR50',
         entity='mcv-c6g7',
         name=execution_name,
         config=args, reinit=True)
@@ -182,16 +185,22 @@ def run_training(args, trial):
                 store_json(os.path.join(args.save_dir, 'loss.json'), losses, pretty=True)
 
                 if better:
-                    torch.save(model.state_dict(), os.path.join(ckpt_dir, 'checkpoint_best_bbfreeze.pt') )
+                    if args.optuna:
+                        torch.save(model.state_dict(), os.path.join(ckpt_dir, 'checkpoint_base_vlad.pt'))
+                    else:
+                        torch.save(model.state_dict(), os.path.join(ckpt_dir, f'checkpoint_VLAD_{args.batch_size}_{args.learning_rate}_{args.downsample_factor}_{args.warm_up_epochs}_{args.vlad_clusters}.pt') )
     
     model_parameters = model.get_model_parameters()
     wandb.log({"model_params": model_parameters})
     
     print('START INFERENCE')
-    model.load(torch.load(os.path.join(ckpt_dir, 'checkpoint_best_bbfreeze.pt')))
+    if args.optuna:
+        model.load(torch.load(os.path.join(ckpt_dir, 'checkpoint_base_vlad.pt')))
+    else:
+        model.load(torch.load(os.path.join(ckpt_dir, f'checkpoint_VLAD_{args.batch_size}_{args.learning_rate}_{args.downsample_factor}_{args.warm_up_epochs}_{args.vlad_clusters}.pt')))
 
     # Evaluation on test split
-    map_score, ap_score = evaluate_clip_level(model, test_data, nms_window = 5)
+    map_score, ap_score = evaluate(model, test_data, nms_window = 5)
 
     # Report results per-class in table
     table = []
@@ -208,7 +217,11 @@ def run_training(args, trial):
     result_text = table_str + "\n\n" + avg_str
     
     # Write the result to a text file.
-    name_rs = "results_netvladpp_regnet8_freeze"
+    if args.optuna:
+        name_rs = f"results_VLAD_{args.batch_size}_{args.learning_rate}_{args.downsample_factor}_{args.warm_up_epochs}_{args.vlad_clusters}"
+    else:
+        name_rs = 'baseline_VLAD'
+    
     with open(f"results/{name_rs}.txt", "w") as f:
         f.write(result_text)
     
@@ -236,19 +249,20 @@ def main(args):
             # Override hyperparameters using Optuna suggestions.
             new_args.batch_size = trial.suggest_categorical("batch_size", [4, 6])
             new_args.stride = trial.suggest_categorical("stride", [2])
-            new_args.learning_rate = trial.suggest_categorical("learning_rate", [
-            1e-5, 2e-5, 3e-5, 5e-5, 7e-5, 1e-4, 2e-4, 3e-4, 5e-4, 8e-4, 1e-3
-            ]) 
-            new_args.num_epochs = trial.suggest_categorical("num_epochs", [15, 20, 25, 30])
+            # new_args.learning_rate = trial.suggest_categorical("learning_rate", [.0008, 5e-4, 1e-4, 1e-3, 1e-2]) 
+            new_args.learning_rate = trial.suggest_categorical("learning_rate", [.0008, .0004, .0001, .001, 8e-5, 4e-5, 1e-5]) 
+            new_args.num_epochs = trial.suggest_categorical("num_epochs", [20])  # [15, 20, 25, 30]
+            # new_args.warm_up_epochs = trial.suggest_categorical("warm_up_epochs", [1, 3, 5])
             new_args.warm_up_epochs = trial.suggest_categorical("warm_up_epochs", [3, 5])
-
-            new_args.patience = trial.suggest_categorical("patience", [15])
+            new_args.patience = trial.suggest_categorical("patience", [10])
+            new_args.downsample_factor = trial.suggest_categorical('downsample_factor', [4, 8, 16, 32])
+            new_args.vlad_clusters = trial.suggest_categorical('vlad_clusters', [16, 32, 64])
 
             # Run training for this trial.
             metric = run_training(new_args, trial)
             return metric
 
-        study = optuna.create_study(direction="minimize")
+        study = optuna.create_study(direction="maximize")
         study.optimize(objective, n_trials=20)
         print("Best trial:")
         trial = study.best_trial
